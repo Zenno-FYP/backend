@@ -1,0 +1,16 @@
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: zenno_mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+    driver: local
