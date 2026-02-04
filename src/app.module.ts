@@ -1,19 +1,32 @@
-import { Module } from '@nestjs/common';
+import { Module, Logger } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { UsersModule } from './modules/users/users.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { FirebaseModule } from './firebase/firebase.module';
+
+const logger = new Logger('AppModule');
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     MongooseModule.forRoot(
-      process.env.MONGODB_URI || 'mongodb://root:password@localhost:27017/zenno_db?authSource=admin',
+      process.env.MONGODB_URI!,
+      {
+        connectionFactory: (connection) => {
+          connection.on('connected', () => {
+            logger.log('MongoDB connected successfully');
+          });
+          connection.on('error', (err: any) => {
+            logger.error('MongoDB connection error:', err);
+          });
+          return connection;
+        },
+      },
     ),
+    FirebaseModule,
     UsersModule,
+    AuthModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
 })
 export class AppModule {}
