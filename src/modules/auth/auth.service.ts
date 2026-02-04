@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, UnauthorizedException, ConflictExcepti
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { FirebaseService } from '../../firebase/firebase.service';
-import { User } from '../users/schemas/user.schema';
+import { User } from '../user/schemas/user.schema';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
@@ -101,16 +101,6 @@ export class AuthService {
         throw new UnauthorizedException('Invalid email or password');
       }
       throw error;
-    }
-  }
-
-  async verifyToken(token: string) {
-    try {
-      const decodedToken = await this.firebaseService.verifyToken(token);
-      const user = await this.userModel.findOne({ uid: decodedToken.uid });
-      return { user: decodedToken, profile: user };
-    } catch (error) {
-      throw new UnauthorizedException('Invalid token');
     }
   }
 

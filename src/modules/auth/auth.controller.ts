@@ -7,7 +7,7 @@ import { FirebaseAuthGuard } from './guards/firebase-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 
 @ApiTags('Auth')
-@Controller('api/auth')
+@Controller('api/v1/auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 
@@ -35,36 +35,6 @@ export class AuthController {
       success: true,
       message: 'Login successful',
       data,
-    };
-  }
-
-  @Get('verify')
-  @ApiBearerAuth('access-token')
-  @UseGuards(FirebaseAuthGuard)
-  @ApiOperation({ summary: 'Verify Firebase token' })
-  @ApiResponse({ status: 200, description: 'Token verified' })
-  @ApiResponse({ status: 401, description: 'Invalid or expired token' })
-  async verifyToken(@CurrentUser() user: any) {
-    const data = await this.authService.verifyToken(user.aud);
-    return {
-      success: true,
-      message: 'Token verified',
-      data,
-    };
-  }
-
-  @Get('me')
-  @ApiBearerAuth('access-token')
-  @UseGuards(FirebaseAuthGuard)
-  @ApiOperation({ summary: 'Get current user profile' })
-  @ApiResponse({ status: 200, description: 'User profile retrieved' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async getCurrentUser(@CurrentUser() user: any) {
-    const profile = await this.authService.getCurrentUser(user.uid);
-    return {
-      success: true,
-      message: 'User profile retrieved',
-      data: profile,
     };
   }
 

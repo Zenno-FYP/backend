@@ -26,7 +26,7 @@ async function bootstrap() {
       'access-token',
     )
     .addTag('Auth', 'Authentication endpoints')
-    .addTag('Users', 'User management endpoints')
+    .addTag('User', 'User management endpoints')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
