@@ -15,7 +15,7 @@ async function bootstrap() {
   // Swagger Configuration
   const config = new DocumentBuilder()
     .setTitle('Zenno Backend API')
-    .setDescription('Email/Password & OAuth Authentication with Firebase')
+    .setDescription('API documentation for Zenno Application')
     .setVersion('1.0.0')
     .addBearerAuth(
       {

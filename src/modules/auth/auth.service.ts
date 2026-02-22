@@ -2,7 +2,9 @@ import { Injectable, BadRequestException, UnauthorizedException, ConflictExcepti
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { FirebaseService } from '../../firebase/firebase.service';
+import { CloudinaryService } from './services/cloudinary.service';
 import { User } from '../user/schemas/user.schema';
+import { TokenBlacklist } from './schemas/token-blacklist.schema';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
@@ -11,17 +13,28 @@ import { AuthResponseDto } from './dto/auth-response.dto';
 export class AuthService {
   constructor(
     private firebaseService: FirebaseService,
+    private cloudinaryService: CloudinaryService,
     @InjectModel(User.name) private userModel: Model<User>,
+    @InjectModel(TokenBlacklist.name) private tokenBlacklistModel: Model<TokenBlacklist>,
   ) {}
 
-  async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
-    const { email, password, name, profilePhoto } = registerDto;
+  async register(registerDto: RegisterDto, file?: Express.Multer.File): Promise<AuthResponseDto> {
+    const { email, password, name } = registerDto;
 
     try {
       // Check if user already exists in MongoDB
       const existingUser = await this.userModel.findOne({ email });
       if (existingUser) {
         throw new ConflictException('Email already in use');
+      }
+
+      // Upload profile photo to Cloudinary if file is provided
+      let profilePhotoUrl = null;
+      if (file) {
+        console.log('Uploading profile photo to Cloudinary...');
+        // Use email as public_id so it overwrites on re-upload
+        profilePhotoUrl = await this.cloudinaryService.uploadImage(file, email);
+        console.log('Profile photo uploaded:', profilePhotoUrl);
       }
 
       // Create user in Firebase
@@ -35,7 +48,7 @@ export class AuthService {
         uid: firebaseUser.uid,
         email,
         name,
-        profilePhoto: profilePhoto || null,
+        profilePhoto: profilePhotoUrl,
       });
 
       await newUser.save();
@@ -112,8 +125,19 @@ export class AuthService {
     return user;
   }
 
-  async logout(uid: string) {
+  async logout(uid: string, token: string) {
     try {
+      // Get token expiration time from decoded token
+      const decodedToken = await this.firebaseService.verifyToken(token);
+      const expiresAt = new Date(decodedToken.exp * 1000);
+
+      // Add token to blacklist
+      await this.tokenBlacklistModel.create({
+        token,
+        uid,
+        expiresAt,
+      });
+
       // Revoke all tokens for this user via Firebase Admin SDK
       await this.firebaseService.revokeTokens(uid);
 
@@ -135,6 +159,11 @@ export class AuthService {
     } catch (error) {
       throw new BadRequestException('Logout failed: ' + error.message);
     }
+  }
+
+  async isTokenBlacklisted(token: string): Promise<boolean> {
+    const blacklistedToken = await this.tokenBlacklistModel.findOne({ token });
+    return !!blacklistedToken;
   }
 
   private async getIdToken(email: string, password: string): Promise<string> {

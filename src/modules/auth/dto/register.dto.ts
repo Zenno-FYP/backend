@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, IsOptional } from 'class-validator';
+import { IsEmail, IsString, MinLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class RegisterDto {
@@ -24,13 +24,4 @@ export class RegisterDto {
   })
   @IsString()
   name: string;
-
-  @ApiProperty({
-    example: 'https://example.com/photo.jpg',
-    description: 'Profile photo URL',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  profilePhoto?: string;
 }
