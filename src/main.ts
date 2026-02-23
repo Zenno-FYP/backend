@@ -15,18 +15,10 @@ async function bootstrap() {
   // Swagger Configuration
   const config = new DocumentBuilder()
     .setTitle('Zenno Backend API')
-    .setDescription('API documentation for Zenno Application')
+    .setDescription('API documentation for Zenno - Firebase Token Verification')
     .setVersion('1.0.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-      },
-      'access-token',
-    )
-    .addTag('Auth', 'Authentication endpoints')
-    .addTag('User', 'User management endpoints')
+    .addBearerAuth()
+    .addTag('User', 'User profile endpoints')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

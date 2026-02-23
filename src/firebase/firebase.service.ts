@@ -37,41 +37,7 @@ export class FirebaseService implements OnModuleInit {
     }
   }
 
-  getAuth(): admin.auth.Auth {
-    return this.auth;
-  }
-
   async verifyToken(token: string): Promise<admin.auth.DecodedIdToken> {
     return this.auth.verifyIdToken(token);
-  }
-
-  async createUser(email: string, password: string, displayName: string) {
-    this.logger.log(`Creating user: ${email}`);
-    return this.auth.createUser({
-      email,
-      password,
-      displayName,
-    });
-  }
-
-  async updateUser(uid: string, data: admin.auth.UpdateRequest) {
-    return this.auth.updateUser(uid, data);
-  }
-
-  async deleteUser(uid: string) {
-    return this.auth.deleteUser(uid);
-  }
-
-  async getUserByEmail(email: string) {
-    return this.auth.getUserByEmail(email);
-  }
-
-  async getUserByUid(uid: string) {
-    return this.auth.getUser(uid);
-  }
-
-  async revokeTokens(uid: string) {
-    this.logger.log(`Revoking tokens for user: ${uid}`);
-    return this.auth.revokeRefreshTokens(uid);
   }
 }

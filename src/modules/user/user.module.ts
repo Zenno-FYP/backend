@@ -4,6 +4,7 @@ import { User, UserSchema } from './schemas/user.schema';
 import { UserController } from './user.controller';
 import { UserService } from './user.service';
 import { FirebaseModule } from '../../firebase/firebase.module';
+import { CloudinaryService } from '../auth/services/cloudinary.service';
 
 @Module({
   imports: [
@@ -11,7 +12,7 @@ import { FirebaseModule } from '../../firebase/firebase.module';
     FirebaseModule,
   ],
   controllers: [UserController],
-  providers: [UserService],
+  providers: [UserService, CloudinaryService],
   exports: [MongooseModule],
 })
 export class UserModule {}

@@ -18,7 +18,7 @@ export class CloudinaryService {
           folder: 'zenno/profile-photos',
           public_id: publicId,
           resource_type: 'auto',
-          overwrite: true, // Overwrite existing file with same public_id
+          overwrite: true,
         },
         (error, result) => {
           if (error) {
@@ -32,18 +32,6 @@ export class CloudinaryService {
       );
 
       upload.end(file.buffer);
-    });
-  }
-
-  async deleteImage(publicId: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      cloudinary.uploader.destroy(publicId, (error, result) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve();
-        }
-      });
     });
   }
 }
