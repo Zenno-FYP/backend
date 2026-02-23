@@ -12,51 +12,58 @@ export class UserService {
     private cloudinaryService: CloudinaryService,
   ) {}
 
-  async getUser(email: string) {
+  async getUser(email: string, firebaseEmailVerified?: boolean) {
     const user = await this.userModel.findOne({ email });
     if (!user) {
       throw new BadRequestException('User not found');
     }
+
+    // Auto-sync Firebase email verification status with MongoDB
+    if (firebaseEmailVerified && !user.isVerified) {
+      user.isVerified = true;
+      await user.save();
+    }
+
     return user;
   }
 
-  async updateUser(
+  async createOrGetUser(
     email: string,
-    updateDto: RegisterUpdateDto,
+    createDto: RegisterUpdateDto,
     file?: Express.Multer.File,
+    firebaseEmailVerified?: boolean,
   ) {
     try {
-      // Upload profile photo to Cloudinary if provided
+      // Check if user already exists
+      let user = await this.userModel.findOne({ email });
+
+      if (user) {
+        // User already exists - auto-sync Firebase email verification status only
+        if (firebaseEmailVerified && !user.isVerified) {
+          user.isVerified = true;
+          await user.save();
+        }
+        return user;
+      }
+
+      // User doesn't exist - create new user
       let profilePhotoUrl = null;
       if (file) {
         profilePhotoUrl = await this.cloudinaryService.uploadImage(file, email);
       }
 
-      // Find or create user
-      let user = await this.userModel.findOne({ email });
-
-      if (!user) {
-        // Create new user
-        user = new this.userModel({
-          email,
-          name: updateDto.name,
-          profilePhoto: profilePhotoUrl,
-          isVerified: updateDto.isVerified || false,
-          role: 'user',
-        });
-      } else {
-        // Update existing user
-        user.name = updateDto.name;
-        user.isVerified = updateDto.isVerified ?? user.isVerified;
-        if (profilePhotoUrl) {
-          user.profilePhoto = profilePhotoUrl;
-        }
-      }
+      user = new this.userModel({
+        email,
+        name: createDto.name,
+        profilePhoto: profilePhotoUrl,
+        isVerified: firebaseEmailVerified || false,
+        role: 'user',
+      });
 
       await user.save();
       return user;
     } catch (error) {
-      throw new BadRequestException('Failed to update user: ' + error.message);
+      throw new BadRequestException('Failed to create user: ' + error.message);
     }
   }
 }

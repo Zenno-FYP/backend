@@ -48,6 +48,8 @@ Authorization: Bearer <firebase-id-token>
 
 Retrieves the authenticated user's profile information.
 
+**Auto-Sync Feature:** If the user's email is verified on Firebase (`email_verified` = true) but the MongoDB record shows `isVerified` = false, the backend will automatically update the MongoDB record to set `isVerified` to true. This ensures that once Firebase verifies an email, the backend is always in sync without requiring a separate verification endpoint call.
+
 **Headers:**
 ```
 Authorization: Bearer <firebase-id-token>
@@ -84,7 +86,7 @@ curl -X GET http://localhost:3000/api/v1/user/me \
 
 ---
 
-#### 2. Update/Create User Profile
+#### 2. Create User Profile
 
 ```
 PUT /api/v1/user/me
@@ -92,7 +94,9 @@ Authorization: Bearer <firebase-id-token>
 Content-Type: multipart/form-data
 ```
 
-Creates a new user or updates an existing user's profile. If the user doesn't exist (first-time login), a new user record is created. Profile photos are automatically uploaded to Cloudinary.
+Creates a new user profile on first login. This endpoint is idempotent - if you call it multiple times with the same email, it will return the existing user data without making any changes. This means the endpoint is safe to call repeatedly.
+
+**Auto-Sync Feature:** Similar to the GET endpoint, if the user's email is verified on Firebase (`email_verified` = true) but the MongoDB record shows `isVerified` = false, the backend will automatically update the MongoDB record to set `isVerified` to true.
 
 **Headers:**
 ```
@@ -104,7 +108,6 @@ Authorization: Bearer <firebase-id-token>
 |-------|------|----------|-------------|
 | `email` | string | Yes | User email address |
 | `name` | string | Yes | User full name |
-| `isVerified` | boolean | No | Whether user is verified (default: false) |
 | `profilePhoto` | file | No | Profile photo image file (jpg, png, etc.) |
 
 **Example cURL Request:**
@@ -113,21 +116,20 @@ curl -X PUT http://localhost:3000/api/v1/user/me \
   -H "Authorization: Bearer <firebase-id-token>" \
   -F "email=john@example.com" \
   -F "name=John Doe" \
-  -F "isVerified=true" \
   -F "profilePhoto=@photo.jpg"
 ```
 
-**Response (200 OK):**
+**Response (201 Created):**
 ```json
 {
   "success": true,
-  "message": "User profile updated successfully",
+  "message": "User profile created successfully",
   "data": {
     "_id": "507f1f77bcf86cd799439011",
     "email": "user@example.com",
     "name": "John Doe",
     "profilePhoto": "https://res.cloudinary.com/zenno/image/upload/v1/zenno/profile-photos/user@example.com.jpg",
-    "isVerified": true,
+    "isVerified": false,
     "role": "user",
     "createdAt": "2026-02-23T10:00:00Z",
     "updatedAt": "2026-02-23T10:00:00Z"
@@ -136,19 +138,23 @@ curl -X PUT http://localhost:3000/api/v1/user/me \
 ```
 
 **Status Codes:**
-- `200` - User profile updated/created successfully
+- `201` - User profile created successfully (new user)
+- `200` - User profile already exists (returning existing user data)
 - `400` - Invalid request data (validation error)
 - `401` - Unauthorized / Invalid or expired Firebase token
 
 **Notes:**
+- On first login, this endpoint creates a user profile and returns it (201).
+- On subsequent calls with the same email, it returns the existing user data (200) without any updates.
+- **Auto-Sync Verification:** If Firebase shows the email as verified but MongoDB shows `isVerified` = false, the backend automatically updates MongoDB to sync the status.
 - Profile photo is optional. If provided, it will be automatically uploaded to Cloudinary
 - Photo filename uses the user's email as ID, so re-uploading a photo will overwrite the previous one
 - Maximum file size depends on Cloudinary limits (typically 100MB)
 - Supported formats: JPG, PNG, WebP, GIF, SVG, etc.
-- If user doesn't exist in MongoDB, they will be automatically created on first update
 - Email must be a valid email format
 - Name must be a non-empty string
-- isVerified must be boolean if provided
+
+---
 
 ## Data Models
 
@@ -269,29 +275,26 @@ curl -X GET http://localhost:3000/api/v1/user/me \
 
 ---
 
-### Example 2: Create/Update User Profile (Without Photo)
+### Example 2: Create User Profile (Without Photo)
 
 ```bash
 curl -X PUT http://localhost:3000/api/v1/user/me \
   -H "Authorization: Bearer <firebase-id-token>" \
-  -H "Content-Type: application/json" \
   -d '{
     "email": "john@example.com",
-    "name": "John Doe",
-    "isVerified": true
+    "name": "John Doe"
   }'
 ```
 
 ---
 
-### Example 3: Create/Update User Profile (With Photo)
+### Example 3: Create User Profile (With Photo)
 
 ```bash
 curl -X PUT http://localhost:3000/api/v1/user/me \
   -H "Authorization: Bearer <firebase-id-token>" \
   -F "email=john@example.com" \
   -F "name=John Doe" \
-  -F "isVerified=true" \
   -F "profilePhoto=@/path/to/profile.jpg"
 ```
 
@@ -378,9 +381,10 @@ CLOUDINARY_API_SECRET=your-api-secret
 ## Important Notes
 
 - **Firebase Authentication**: All authentication is handled by Firebase on the frontend. The backend only verifies tokens.
+- **Email Verification Sync**: When calling GET /user/me, if Firebase shows the email as verified (`email_verified` = true) but MongoDB shows `isVerified` = false, the backend automatically updates the MongoDB record to sync the states.
 - **Token Expiration**: Firebase ID Tokens typically expire after 1 hour. Frontend must refresh and get a new token.
 - **Email-Based IDs**: Profile photos are stored in Cloudinary using email as the public ID, so re-uploading automatically overwrites the old photo.
-- **Auto-User Creation**: Users are automatically created in MongoDB on their first API call (when updating profile).
+- **Create-Only User Profile**: Users are created via PUT /user/me only on first login. Subsequent PUT calls to the same endpoint will return a 409 Conflict error. This ensures profile integrity.
 - **Timestamps**: All timestamps are in ISO 8601 format (UTC).
 - **No Password Storage**: Passwords are managed entirely by Firebase. Backend never stores passwords.
 

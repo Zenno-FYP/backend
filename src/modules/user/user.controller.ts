@@ -18,7 +18,7 @@ export class UserController {
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid firebase token' })
   @ApiResponse({ status: 404, description: 'User not found' })
   async getMe(@Request() req: any) {
-    const user = await this.userService.getUser(req.user.email);
+    const user = await this.userService.getUser(req.user.email, req.user.email_verified);
     return {
       success: true,
       message: 'User details retrieved',
@@ -31,9 +31,9 @@ export class UserController {
   @UseGuards(FirebaseAuthGuard)
   @UseInterceptors(FileInterceptor('profilePhoto'))
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Update/create current user profile' })
+  @ApiOperation({ summary: 'Create current user profile (first time only)' })
   @ApiBody({
-    description: 'User profile update data with optional profile photo',
+    description: 'User profile creation data with optional profile photo',
     schema: {
       type: 'object',
       required: ['email', 'name'],
@@ -48,11 +48,6 @@ export class UserController {
           example: 'John Doe',
           description: 'User full name',
         },
-        isVerified: {
-          type: 'boolean',
-          example: true,
-          description: 'Is user verified (optional)',
-        },
         profilePhoto: {
           type: 'string',
           format: 'binary',
@@ -61,18 +56,19 @@ export class UserController {
       },
     },
   })
-  @ApiResponse({ status: 200, description: 'User profile updated successfully' })
+  @ApiResponse({ status: 201, description: 'User profile created successfully (new user)' })
+  @ApiResponse({ status: 200, description: 'User profile already exists (returning existing user)' })
   @ApiResponse({ status: 400, description: 'Invalid request data' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid firebase token' })
-  async updateMe(
-    @Body() updateDto: RegisterUpdateDto,
+  async createMe(
+    @Body() createDto: RegisterUpdateDto,
     @UploadedFile() file: Express.Multer.File,
     @Request() req: any,
   ) {
-    const user = await this.userService.updateUser(req.user.email, updateDto, file);
+    const user = await this.userService.createOrGetUser(req.user.email, createDto, file, req.user.email_verified);
     return {
       success: true,
-      message: 'User profile updated successfully',
+      message: 'User profile created successfully',
       data: user,
     };
   }
