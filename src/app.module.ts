@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { UserModule } from './modules/user/user.module';
 import { FirebaseModule } from './firebase/firebase.module';
+import { ActivityModule } from './modules/activity/activity.module';
 
 const logger = new Logger('AppModule');
 
@@ -25,6 +26,7 @@ const logger = new Logger('AppModule');
     ),
     FirebaseModule,
     UserModule,
+    ActivityModule,
   ],
 })
 export class AppModule {}

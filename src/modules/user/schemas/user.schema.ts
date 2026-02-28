@@ -18,6 +18,9 @@ export class User extends Document {
   @Prop({ default: 'user' })
   role: string;
 
+  @Prop({ type: Date, default: null })
+  activity_sync_at?: Date;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
