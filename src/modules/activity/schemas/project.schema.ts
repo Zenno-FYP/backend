@@ -9,8 +9,8 @@ export class Project extends Document {
   @Prop({ required: true, index: true })
   project_name: string;
 
-  @Prop({ required: true })
-  project_path: string;
+  @Prop()
+  project_path?: string;
 
   @Prop({
     type: Map,
@@ -30,11 +30,11 @@ export class Project extends Document {
     }
   >;
 
-  @Prop({ type: Date, required: true })
-  first_seen_at: Date;
+  @Prop({ type: Date, default: null })
+  first_seen_at?: Date;
 
-  @Prop({ type: Date, required: true })
-  last_active_at: Date;
+  @Prop({ type: Date, default: null })
+  last_active_at?: Date;
 
   createdAt?: Date;
   updatedAt?: Date;

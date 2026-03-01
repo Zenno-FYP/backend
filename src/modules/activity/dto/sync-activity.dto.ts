@@ -1,116 +1,104 @@
-import { IsString, IsObject, IsOptional, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class DailyLanguageDto {
-  @IsString()
-  language_name: string;
+export class BehaviorDto {
+  @IsNumber()
+  keystrokes: number;
 
-  @IsString()
-  project_name: string;
+  @IsNumber()
+  clicks: number;
 
+  @IsNumber()
+  scrolls: number;
+
+  @IsNumber()
+  idle_sec: number;
+}
+
+export class DayBucketDto {
   @IsString()
   date: string; // YYYY-MM-DD
 
-  @Type(() => Number)
-  duration_sec: number;
+  @IsOptional()
+  @IsObject()
+  languages?: Record<string, number>; // { "python": 1200, "sql": 300 }
+
+  @IsOptional()
+  @IsObject()
+  apps?: Record<string, number>; // { "vscode": 1400, "chrome": 100 }
+
+  @IsOptional()
+  @IsObject()
+  skills?: Record<string, number>; // { "backend": 1000, "debugging": 500 }
+
+  @IsOptional()
+  @IsObject()
+  context?: Record<string, number>; // { "focused": 1200, "reading": 300 }
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BehaviorDto)
+  behavior?: BehaviorDto;
 }
 
-export class DailyAppDto {
+export class CurrentLocDto {
   @IsString()
-  app_name: string;
+  language: string;
 
+  @IsNumber()
+  lines: number;
+
+  @IsNumber()
+  files: number;
+}
+
+export class ProjectMetadataDto {
+  @IsOptional()
+  @IsString()
+  first_seen_at?: string; // ISO 8601 (only on new projects)
+
+  @IsOptional()
+  @IsString()
+  last_active_at?: string; // ISO 8601
+}
+
+export class ProjectSyncDto {
   @IsString()
   project_name: string;
 
-  @IsString()
-  date: string;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProjectMetadataDto)
+  metadata?: ProjectMetadataDto;
 
-  @Type(() => Number)
-  duration_sec: number;
-}
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CurrentLocDto)
+  current_loc?: CurrentLocDto[];
 
-export class DailySkillDto {
-  @IsString()
-  skill_name: string;
-
-  @IsString()
-  project_name: string;
-
-  @IsString()
-  date: string;
-
-  @Type(() => Number)
-  duration_sec: number;
-}
-
-export class DailyContextDto {
-  @IsString()
-  context_state: string;
-
-  @IsString()
-  project_name: string;
-
-  @IsString()
-  date: string;
-
-  @Type(() => Number)
-  duration_sec: number;
-}
-
-export class DailyBehaviorDto {
-  @IsString()
-  project_name: string;
-
-  @IsString()
-  date: string;
-
-  @Type(() => Number)
-  total_keystrokes: number;
-
-  @Type(() => Number)
-  total_mouse_clicks: number;
-
-  @Type(() => Number)
-  total_scroll_events: number;
-
-  @Type(() => Number)
-  total_idle_sec: number;
-}
-
-export class LocSnapshotDto {
-  @IsString()
-  project_name: string;
-
-  @IsString()
-  language_name: string;
-
-  @Type(() => Number)
-  lines_of_code: number;
-
-  @Type(() => Number)
-  file_count: number;
-
-  @IsString()
-  last_scanned_at: string; // ISO 8601
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DayBucketDto)
+  days: DayBucketDto[];
 }
 
 export class SyncActivityDto {
   @IsString()
-  user_id: string; // Firebase UID or email
+  user_id: string;
 
-  @IsOptional()
   @IsString()
-  sync_token?: string; // Optional: last sync timestamp
+  sync_timestamp: string; // ISO 8601
 
-  @IsObject()
+  @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => Object)
-  data: {
-    daily_languages?: DailyLanguageDto[];
-    daily_apps?: DailyAppDto[];
-    daily_skills?: DailySkillDto[];
-    daily_context?: DailyContextDto[];
-    daily_behavior?: DailyBehaviorDto[];
-    loc_snapshots?: LocSnapshotDto[];
-  };
+  @Type(() => ProjectSyncDto)
+  data: ProjectSyncDto[];
 }

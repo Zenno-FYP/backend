@@ -48,6 +48,9 @@ export class Activity extends Document {
   @Prop({ default: 1 })
   sync_version: number;
 
+  @Prop({ type: Date, default: null })
+  last_synced_at?: Date;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
