@@ -3,7 +3,7 @@
 ## Overview
 Zenno is a production-ready NestJS backend application that verifies Firebase authentication tokens and manages user profiles in MongoDB with Cloudinary for image storage.
 
-**Base URL:** `http://localhost:3000`  
+**Base URL:** `http://localhost:3000/api/v1`  
 **API Version:** `v1`  
 **Documentation:** `http://localhost:3000/api/docs` (Swagger UI)
 

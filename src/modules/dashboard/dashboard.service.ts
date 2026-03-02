@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Activity } from '../activity/schemas/activity.schema';
@@ -7,8 +7,6 @@ import { PerformanceMetricsResponseDto, UsageTrendBarDto } from './dto/dashboard
 
 @Injectable()
 export class DashboardService {
-  private readonly logger = new Logger(DashboardService.name);
-
   constructor(
     @InjectModel(Activity.name) private activityModel: Model<Activity>,
     @InjectModel(User.name) private userModel: Model<User>,
@@ -101,25 +99,10 @@ export class DashboardService {
           previousMetrics.totalScrolls,
         ),
       },
-      system_idle_time: {
-        value: Math.round(currentMetrics.totalIdleHours * 10) / 10,
-        unit: 'hours',
-        change_percent: this.calculateTrendPercent(
-          currentMetrics.totalIdleHours,
-          previousMetrics.totalIdleHours,
-        ),
-        // For idle time, "down" is good, so reverse the logic
-        trend: this.calculateTrendDirection(
-          previousMetrics.totalIdleHours,
-          currentMetrics.totalIdleHours,
-        ),
-      },
     };
 
     // Generate usage trend graph (7 days)
     const usageTrendGraph = this.generateUsageTrend(currentActivities, currentStart);
-
-    this.logger.log(`✓ Performance metrics retrieved for user: ${email}`);
 
     return {
       period: 'last_7_days',
@@ -160,7 +143,6 @@ export class DashboardService {
     let totalKeystrokes = 0;
     let totalClicks = 0;
     let totalScrolls = 0;
-    let totalBehaviorIdleSeconds = 0; // behavior.idle_sec - system inactivity
     let totalDurationSeconds = 0; // All context states: Focused + Reading + Distracted + Idle
     const activeDays = new Set<string>();
 
@@ -169,7 +151,6 @@ export class DashboardService {
       totalKeystrokes += activity.behavior?.keystrokes || 0;
       totalClicks += activity.behavior?.clicks || 0;
       totalScrolls += activity.behavior?.scrolls || 0;
-      totalBehaviorIdleSeconds += activity.behavior?.idle_sec || 0; // System inactivity
 
       // Context durations - sum all context states for total duration
       if (activity.context) {
@@ -194,26 +175,22 @@ export class DashboardService {
     const totalDurationHours = totalDurationSeconds / 3600;
     const dailyActiveAverage = activeDays.size > 0 ? totalDurationHours / activeDays.size : 0;
 
-    // Total idle time: behavior.idle_sec (system inactivity, NOT context.Idle)
-    const totalIdleHours = totalBehaviorIdleSeconds / 3600;
-
-    // Debug
-    this.logger.debug(`📊 Metrics - WPM: ${wpm.toFixed(2)}, Clicks: ${totalClicks}, Total duration: ${totalDurationHours.toFixed(2)}h`);
-
     return {
       wpm,
       dailyActiveAverage,
       totalClicks,
       totalScrolls,
-      totalIdleHours,
     };
   }
 
   /**
    * Calculate trend percentage change: ((Current - Previous) / Previous) * 100
+   * Special case: If previous is 0 and current > 0, return 100 (100% growth from nothing)
    */
   private calculateTrendPercent(current: number, previous: number): number {
-    if (previous === 0) return 0;
+    if (previous === 0) {
+      return current > 0 ? 100 : 0;
+    }
     const percent = ((current - previous) / previous) * 100;
     return Math.round(percent * 10) / 10;
   }
@@ -251,13 +228,6 @@ export class DashboardService {
       }
     }
 
-    // Debug: Show what projects are in the data
-    const projectsInData = new Set<string>();
-    for (const [_, dayActivities] of dayMap) {
-      dayActivities.forEach(a => projectsInData.add(a.project_name || 'unknown'));
-    }
-    this.logger.debug(`📊 Performance metrics - Projects: ${Array.from(projectsInData).join(', ')}, Activities: ${activities.length}`);
-
     // Generate 7 days of data
     const result: UsageTrendBarDto[] = [];
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -267,14 +237,6 @@ export class DashboardService {
       date.setUTCDate(startDate.getUTCDate() + i);
       const dateStr = date.toISOString().split('T')[0];
       const dayActivities = dayMap.get(dateStr) || [];
-
-      // Collect from ALL projects on this day
-      const projectCount = new Set(dayActivities.map(a => a.project_name)).size;
-      if (dayActivities.length > 0) {
-        this.logger.debug(
-          `📅 ${dateStr} (${dayNames[date.getUTCDay()]}): ${dayActivities.length} record(s) from ${projectCount} project(s)`,
-        );
-      }
 
       // Calculate hours for each context category (aggregates across all projects)
       const { focused, reading, distracted, idle } = this.categorizeActivities(dayActivities);
@@ -311,17 +273,6 @@ export class DashboardService {
 
     for (const activity of activities) {
       if (activity.context) {
-        // Debug: Log context structure
-        const contextSize = activity.context instanceof Map ? activity.context.size : Object.keys(activity.context).length;
-        if (contextSize > 0) {
-          const contextKeys = activity.context instanceof Map 
-            ? Array.from(activity.context.keys()).join(', ')
-            : Object.keys(activity.context).join(', ');
-          this.logger.debug(
-            `📍 Context entries for ${activity.date.toISOString()}: ${contextKeys}`,
-          );
-        }
-
         // Handle both Map and plain object for context
         const contextEntries = activity.context instanceof Map
           ? Array.from(activity.context.entries())
@@ -357,16 +308,10 @@ export class DashboardService {
               // Idle context state: user was idle/away (NOT behavior.idle_sec)
               idle += hours;
               break;
-            default:
-              this.logger.warn(`⚠️ Unknown context type: "${contextType}"`);
           }
         }
       }
     }
-
-    this.logger.debug(
-      `📊 Categorized hours - Focused: ${focused.toFixed(2)}, Reading: ${reading.toFixed(2)}, Distracted: ${distracted.toFixed(2)}, Idle: ${idle.toFixed(2)}`,
-    );
 
     return { focused, reading, distracted, idle };
   }

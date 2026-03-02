@@ -51,12 +51,6 @@ export class PerformanceSummaryDto {
     type: MetricValueDto,
   })
   total_scrolls: MetricValueDto;
-
-  @ApiProperty({
-    description: 'System idle time in hours (no keyboard/mouse input)',
-    type: MetricValueDto,
-  })
-  system_idle_time: MetricValueDto;
 }
 
 export class UsageTrendBarDto {
