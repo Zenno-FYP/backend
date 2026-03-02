@@ -137,24 +137,6 @@ export class ActivityController {
   @ApiResponse({
     status: 201,
     description: 'Activity synced successfully',
-    schema: {
-      example: {
-        success: true,
-        message: 'Activity synced successfully',
-        sync_timestamp: '2026-03-01T14:30:15.000Z',
-        user: {
-          id: '507f1f77bcf86cd799439011',
-          email: 'user@example.com',
-          name: 'John Doe',
-          profile_photo: 'https://...',
-          activity_sync_at: '2026-03-01T14:30:15.000Z',
-          stats: {
-            total_activity_records: 45,
-            total_projects: 5,
-          },
-        },
-      },
-    },
   })
   @ApiResponse({ status: 400, description: 'Invalid request data or sync failed' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid firebase token' })

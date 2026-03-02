@@ -27,6 +27,7 @@ export class Project extends Document {
         language: { type: String },
         lines: { type: Number, default: 0 },
         files: { type: Number, default: 0 },
+        _id: false,
       },
     ],
     default: [],
