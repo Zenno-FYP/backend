@@ -2,29 +2,16 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class MetricValueDto {
   @ApiProperty({
-    example: 48,
+    example: 8.6,
     description: 'The metric value',
   })
   value: number;
 
   @ApiProperty({
-    example: 'words/min',
-    description: 'Unit of measurement',
-  })
-  unit: string;
-
-  @ApiProperty({
-    example: 5.2,
+    example: 100,
     description: 'Percentage change compared to previous period',
   })
   change_percent: number;
-
-  @ApiProperty({
-    enum: ['up', 'down', 'neutral'],
-    example: 'up',
-    description: 'Trend direction',
-  })
-  trend: 'up' | 'down' | 'neutral';
 }
 
 export class PerformanceSummaryDto {

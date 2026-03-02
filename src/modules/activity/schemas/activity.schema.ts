@@ -8,7 +8,7 @@ interface BehaviorData {
   idle_sec: number;
 }
 
-@Schema({ versionKey: false })
+@Schema({ versionKey: false, timestamps: true })
 export class Activity extends Document {
   @Prop({ required: true, index: true, type: Types.ObjectId })
   user_id: Types.ObjectId; // Reference to users._id
@@ -53,6 +53,9 @@ export class Activity extends Document {
 
   @Prop({ type: Date, default: null })
   last_synced_at?: Date;
+
+  createdAt?: Date; // Auto-managed by MongoDB (UTC)
+  updatedAt?: Date; // Auto-managed by MongoDB (UTC)
 }
 
 export const ActivitySchema = SchemaFactory.createForClass(Activity);

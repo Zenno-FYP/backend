@@ -24,7 +24,7 @@ export class BehaviorDto {
 
 export class DayBucketDto {
   @IsString()
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD (local calendar date)
 
   @IsOptional()
   @IsObject()
@@ -62,11 +62,11 @@ export class CurrentLocDto {
 export class ProjectMetadataDto {
   @IsOptional()
   @IsString()
-  first_seen_at?: string; // ISO 8601 (only on new projects)
+  first_seen_at?: string; // ISO 8601 local timestamp (only on new projects, e.g., "2026-03-01T14:30:45")
 
   @IsOptional()
   @IsString()
-  last_active_at?: string; // ISO 8601
+  last_active_at?: string; // ISO 8601 local timestamp (e.g., "2026-03-01T14:30:45")
 }
 
 export class ProjectSyncDto {

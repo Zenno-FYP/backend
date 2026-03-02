@@ -57,11 +57,10 @@ export class ActivityService {
       // Sync project buckets atomically
       await this.syncProjectBuckets(userId, syncDto.data, syncTimestamp, session);
 
-      // Update user's activity_sync_at timestamp within the transaction
-      const now = new Date();
+      // Update user's activity_sync_at timestamp within the transaction (use local time from payload)
       await this.userModel.updateOne(
         { _id: user._id },
-        { $set: { activity_sync_at: now } },
+        { $set: { activity_sync_at: syncTimestamp } },
         { session },
       );
 
@@ -80,7 +79,7 @@ export class ActivityService {
       return {
         success: true,
         message: 'Activity synced successfully',
-        sync_timestamp: now.toISOString(),
+        sync_timestamp: syncTimestamp.toISOString(),
         user: {
           id: updatedUser._id,
           email: updatedUser.email,
@@ -197,15 +196,17 @@ export class ActivityService {
     session: ClientSession,
   ) {
     for (const day of bucket.days) {
-      const date = new Date(day.date);
+      // Parse local date string (YYYY-MM-DD) as UTC midnight
+      // This preserves the local date without timezone conversion
+      const date = new Date(day.date + 'T00:00:00Z');
       if (isNaN(date.getTime())) {
         throw new BadRequestException(
           `Invalid date in days bucket for project ${bucket.project_name}: ${day.date}`,
         );
       }
-      date.setUTCHours(0, 0, 0, 0);
 
       const $set: Record<string, any> = {
+        // last_synced_at uses local time from desktop sync timestamp
         last_synced_at: syncTimestamp,
       };
 

@@ -1,15 +1,20 @@
 import { Controller, Get, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
+import { ToolUsageService } from './tool-usage.service';
 import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
 import { PerformanceMetricsResponseDto } from './dto/dashboard-metrics.dto';
+import { ToolUsageResponseDto } from './dto/tool-usage.dto';
 
 @ApiTags('Dashboard')
 @Controller('api/v1/dashboard')
 @ApiBearerAuth()
 @UseGuards(FirebaseAuthGuard)
 export class DashboardController {
-  constructor(private readonly dashboardService: DashboardService) {}
+  constructor(
+    private readonly dashboardService: DashboardService,
+    private readonly toolUsageService: ToolUsageService,
+  ) {}
 
   @Get('performance-metrics')
   @ApiOperation({
@@ -24,21 +29,20 @@ export class DashboardController {
     return this.dashboardService.getPerformanceMetrics(req.user.email);
   }
 
-  // Placeholder for tool-usage endpoint
   @Get('tool-usage')
   @ApiOperation({
     summary: 'Get tool usage analytics',
-    description: 'Get detailed breakdown of tool usage across projects and time periods.',
+    description:
+      'Get detailed breakdown of app usage and language distribution. Shows top apps by time spent and top programming languages by lines of code.',
   })
   @ApiResponse({
     status: 200,
     description: 'Tool usage data retrieved successfully',
   })
-  async getToolUsage(@Request() req: any) {
-    return {
-      message: 'Tool usage endpoint - coming soon',
-      note: 'Implementation pending',
-    };
+  @ApiResponse({ status: 401, description: 'Unauthorized - Invalid firebase token' })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  async getToolUsage(@Request() req: any): Promise<ToolUsageResponseDto> {
+    return this.toolUsageService.getToolUsage(req.user.email);
   }
 
   // Placeholder for project-insights endpoint

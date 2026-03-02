@@ -58,43 +58,26 @@ export class DashboardService {
     // Build performance summary metrics with trends
     const performanceSummary = {
       wpm: {
-        value: Math.round(currentMetrics.wpm * 10) / 10,
-        unit: 'words/min',
+        value: Math.round(currentMetrics.wpm * 100) / 100,
         change_percent: this.calculateTrendPercent(currentMetrics.wpm, previousMetrics.wpm),
-        trend: this.calculateTrendDirection(currentMetrics.wpm, previousMetrics.wpm),
       },
       daily_active_average: {
-        value: Math.round(currentMetrics.dailyActiveAverage * 10) / 10,
-        unit: 'hours/day',
+        value: Math.round(currentMetrics.dailyActiveAverage * 100) / 100,
         change_percent: this.calculateTrendPercent(
-          currentMetrics.dailyActiveAverage,
-          previousMetrics.dailyActiveAverage,
-        ),
-        trend: this.calculateTrendDirection(
           currentMetrics.dailyActiveAverage,
           previousMetrics.dailyActiveAverage,
         ),
       },
       total_clicks: {
         value: currentMetrics.totalClicks,
-        unit: 'clicks',
         change_percent: this.calculateTrendPercent(
-          currentMetrics.totalClicks,
-          previousMetrics.totalClicks,
-        ),
-        trend: this.calculateTrendDirection(
           currentMetrics.totalClicks,
           previousMetrics.totalClicks,
         ),
       },
       total_scrolls: {
         value: currentMetrics.totalScrolls,
-        unit: 'scrolls',
         change_percent: this.calculateTrendPercent(
-          currentMetrics.totalScrolls,
-          previousMetrics.totalScrolls,
-        ),
-        trend: this.calculateTrendDirection(
           currentMetrics.totalScrolls,
           previousMetrics.totalScrolls,
         ),
@@ -113,21 +96,10 @@ export class DashboardService {
   }
 
   /**
-   * Calculate all metrics from activity records
-   * Uses CONTEXT data (what user was doing) - does NOT mix with behavior.idle_sec
-   * 
-   * CRITICAL - Two separate idle metrics:
-   * - total_idle_time in key_metrics: behavior.idle_sec (system inactivity - no keyboard/mouse)
-   * - idle_hours in usage_trend_graph: context.Idle (user was away/idle state)
-   * 
+   * Calculate performance metrics from activity records
    * Formulas:
-   * - WPM: (Total Keystrokes / 5) / (sum of all context durations in minutes)
-   * - Daily Active Average: (All context durations in hours) / Count of Active Days
-   * - Total Idle Time: Sum of behavior.idle_sec converted to hours
-   * 
-   * IMPORTANT:
-   * - All context calculations use ONLY context durations (Focused, Reading, Distracted, Idle)
-   * - behavior.idle_sec is system inactivity tracking (separate data source)
+   * - WPM: (Total Keystrokes / 5) / (total context duration in minutes)
+   * - Daily Active Average: (total context duration in hours) / number of active days
    */
   private calculateMetrics(activities: Activity[]) {
     if (activities.length === 0) {
@@ -184,8 +156,8 @@ export class DashboardService {
   }
 
   /**
-   * Calculate trend percentage change: ((Current - Previous) / Previous) * 100
-   * Special case: If previous is 0 and current > 0, return 100 (100% growth from nothing)
+   * Calculate trend percentage: ((Current - Previous) / Previous) * 100
+   * Returns 100 if previous is 0 but current > 0
    */
   private calculateTrendPercent(current: number, previous: number): number {
     if (previous === 0) {
@@ -196,22 +168,8 @@ export class DashboardService {
   }
 
   /**
-   * Calculate trend direction: up | down | neutral
-   */
-  private calculateTrendDirection(
-    current: number,
-    previous: number,
-  ): 'up' | 'down' | 'neutral' {
-    if (current > previous) return 'up';
-    if (current < previous) return 'down';
-    return 'neutral';
-  }
-
-  /**
-   * Generate daily breakdown for usage trend graph (stacked bar chart)
-   * Returns exactly 7 days of data with categorized context metrics
-   * 
-   * IMPORTANT: Aggregates data from ALL projects for each day
+   * Generate 7-day usage trend with context breakdown
+   * Aggregates all projects per day
    */
   private generateUsageTrend(activities: Activity[], startDate: Date): UsageTrendBarDto[] {
     const dayMap = new Map<string, Activity[]>();
@@ -247,11 +205,11 @@ export class DashboardService {
       result.push({
         date: dateStr,
         day_name: dayNames[date.getUTCDay()],
-        focused_hours: Math.round(focused * 10) / 10,
-        reading_hours: Math.round(reading * 10) / 10,
-        distracted_hours: Math.round(distracted * 10) / 10,
-        idle_hours: Math.round(idle * 10) / 10,
-        total_active_hours: Math.round(totalActive * 10) / 10,
+        focused_hours: Math.round(focused * 100) / 100,
+        reading_hours: Math.round(reading * 100) / 100,
+        distracted_hours: Math.round(distracted * 100) / 100,
+        idle_hours: Math.round(idle * 100) / 100,
+        total_active_hours: Math.round(totalActive * 100) / 100,
       });
     }
 
@@ -281,31 +239,21 @@ export class DashboardService {
         for (const [contextType, duration] of contextEntries) {
           const hours = ((duration as number) || 0) / 3600;
 
-          // Match exact context state keys from desktop agent
-          // These are capitalized: Focused, Reading, Distracted, Idle
           switch (contextType) {
             case 'Focused':
             case 'focused':
-            case 'coding':
-            case 'debugging':
-            case 'testing':
               focused += hours;
               break;
             case 'Reading':
             case 'reading':
-            case 'research':
-            case 'documentation':
               reading += hours;
               break;
             case 'Distracted':
             case 'distracted':
-            case 'communication':
-            case 'entertainment':
               distracted += hours;
               break;
             case 'Idle':
             case 'idle':
-              // Idle context state: user was idle/away (NOT behavior.idle_sec)
               idle += hours;
               break;
           }
