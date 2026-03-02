@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, ClientSession } from 'mongoose';
+import { Model, ClientSession, Types } from 'mongoose';
 import { Activity } from './schemas/activity.schema';
 import { Project } from './schemas/project.schema';
 import { User } from '../user/schemas/user.schema';
@@ -32,7 +32,18 @@ export class ActivityService {
         throw new BadRequestException('User not found');
       }
 
-      const userId = user._id.toString();
+      // Convert user_id string from DTO to ObjectId
+      let userId: Types.ObjectId;
+      try {
+        userId = new Types.ObjectId(syncDto.user_id);
+      } catch (error) {
+        throw new BadRequestException('Invalid user_id format (must be valid MongoDB ObjectId)');
+      }
+
+      // Verify that the user_id matches the authenticated user
+      if (userId.toString() !== user._id.toString()) {
+        throw new BadRequestException('user_id does not match authenticated user');
+      }
 
       const syncTimestamp = new Date(syncDto.sync_timestamp);
       if (isNaN(syncTimestamp.getTime())) {
@@ -93,7 +104,7 @@ export class ActivityService {
   }
 
   private async syncProjectBuckets(
-    userId: string,
+    userId: Types.ObjectId,
     buckets: ProjectSyncDto[],
     clientTimestamp: Date,
     session: ClientSession,
@@ -107,7 +118,7 @@ export class ActivityService {
   }
 
   private async upsertProject(
-    userId: string,
+    userId: Types.ObjectId,
     bucket: ProjectSyncDto,
     syncTimestamp: Date,
     session: ClientSession,
@@ -120,14 +131,28 @@ export class ActivityService {
       ? new Date(bucket.metadata.first_seen_at)
       : syncTimestamp;
 
+    // Check if project already exists
+    const existingProject = await this.projectModel.findOne(
+      {
+        user_id: userId,
+        project_name: bucket.project_name,
+      },
+      null,
+      { session },
+    );
+
     const update: Record<string, any> = {
       $set: {
         last_active_at: isNaN(lastActiveAt.getTime()) ? new Date() : lastActiveAt,
       },
-      $setOnInsert: {
-        first_seen_at: isNaN(firstSeenAt.getTime()) ? new Date() : firstSeenAt,
-      },
     };
+
+    // Only set first_seen_at if project is NEW (doesn't exist yet)
+    if (!existingProject) {
+      update.$set.first_seen_at = isNaN(firstSeenAt.getTime())
+        ? new Date()
+        : firstSeenAt;
+    }
 
     await this.projectModel.findOneAndUpdate(
       {
@@ -142,31 +167,31 @@ export class ActivityService {
       },
     );
 
-    // Update current_loc snapshots if provided
+    // Update current_loc if provided
     if (bucket.current_loc && bucket.current_loc.length > 0) {
-      for (const loc of bucket.current_loc) {
-        await this.projectModel.updateOne(
-          {
-            user_id: userId,
-            project_name: bucket.project_name,
+      const currentLoc = bucket.current_loc.map((loc) => ({
+        language: loc.language,
+        lines: loc.lines,
+        files: loc.files,
+      }));
+
+      await this.projectModel.updateOne(
+        {
+          user_id: userId,
+          project_name: bucket.project_name,
+        },
+        {
+          $set: {
+            current_loc: currentLoc,
           },
-          {
-            $set: {
-              [`languages.${loc.language}`]: {
-                lines_of_code: loc.lines,
-                file_count: loc.files,
-                last_scanned_at: new Date(),
-              },
-            },
-          },
-          { session },
-        );
-      }
+        },
+        { session },
+      );
     }
   }
 
   private async upsertDailyActivities(
-    userId: string,
+    userId: Types.ObjectId,
     bucket: ProjectSyncDto,
     syncTimestamp: Date,
     session: ClientSession,
@@ -205,7 +230,7 @@ export class ActivityService {
 
       if (day.context && Object.keys(day.context).length > 0) {
         for (const [name, duration] of Object.entries(day.context)) {
-          $set[`context_states.${name}`] = duration;
+          $set[`context.${name}`] = duration;
         }
       }
 
@@ -242,7 +267,7 @@ export class ActivityService {
   /**
    * Get aggregate statistics for the user
    */
-  private async getActivityStatsByUserId(userId: string) {
+  private async getActivityStatsByUserId(userId: Types.ObjectId) {
     const activityCount = await this.activityModel.countDocuments({
       user_id: userId,
     });

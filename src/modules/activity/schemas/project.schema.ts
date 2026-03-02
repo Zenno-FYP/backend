@@ -1,34 +1,19 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Types } from 'mongoose';
 
-@Schema({ timestamps: true, versionKey: false })
+interface CurrentLocItem {
+  language: string;
+  lines: number;
+  files: number;
+}
+
+@Schema({ versionKey: false })
 export class Project extends Document {
-  @Prop({ required: true, index: true })
-  user_id: string; // Firebase UID
+  @Prop({ required: true, index: true, type: Types.ObjectId })
+  user_id: Types.ObjectId; // Reference to users._id
 
   @Prop({ required: true, index: true })
-  project_name: string;
-
-  @Prop()
-  project_path?: string;
-
-  @Prop({
-    type: Map,
-    of: {
-      lines_of_code: { type: Number, default: 0 },
-      file_count: { type: Number, default: 0 },
-      last_scanned_at: { type: Date },
-    },
-    default: {},
-  })
-  languages: Map<
-    string,
-    {
-      lines_of_code: number;
-      file_count: number;
-      last_scanned_at: Date;
-    }
-  >;
+  project_name: string; // Project name from SQLite
 
   @Prop({ type: Date, default: null })
   first_seen_at?: Date;
@@ -36,8 +21,17 @@ export class Project extends Document {
   @Prop({ type: Date, default: null })
   last_active_at?: Date;
 
-  createdAt?: Date;
-  updatedAt?: Date;
+  @Prop({
+    type: [
+      {
+        language: { type: String },
+        lines: { type: Number, default: 0 },
+        files: { type: Number, default: 0 },
+      },
+    ],
+    default: [],
+  })
+  current_loc: CurrentLocItem[];
 }
 
 export const ProjectSchema = SchemaFactory.createForClass(Project);

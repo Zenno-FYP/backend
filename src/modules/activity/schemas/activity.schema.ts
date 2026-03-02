@@ -1,10 +1,17 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Types } from 'mongoose';
 
-@Schema({ timestamps: true, versionKey: false })
+interface BehaviorData {
+  keystrokes: number;
+  clicks: number;
+  scrolls: number;
+  idle_sec: number;
+}
+
+@Schema({ versionKey: false })
 export class Activity extends Document {
-  @Prop({ required: true, index: true })
-  user_id: string; // Firebase UID
+  @Prop({ required: true, index: true, type: Types.ObjectId })
+  user_id: Types.ObjectId; // Reference to users._id
 
   @Prop({ required: true, index: true })
   project_name: string;
@@ -22,37 +29,30 @@ export class Activity extends Document {
   skills: Map<string, number>; // {skill_name: duration_sec}
 
   @Prop({ type: Map, of: Number, default: {} })
-  context_states: Map<string, number>; // {context: duration_sec}
+  context: Map<string, number>; // {context_state: duration_sec}
 
   @Prop({
     type: {
-      total_keystrokes: { type: Number, default: 0 },
-      total_mouse_clicks: { type: Number, default: 0 },
-      total_scroll_events: { type: Number, default: 0 },
-      total_idle_sec: { type: Number, default: 0 },
+      keystrokes: { type: Number, default: 0 },
+      clicks: { type: Number, default: 0 },
+      scrolls: { type: Number, default: 0 },
+      idle_sec: { type: Number, default: 0 },
     },
     default: {
-      total_keystrokes: 0,
-      total_mouse_clicks: 0,
-      total_scroll_events: 0,
-      total_idle_sec: 0,
+      keystrokes: 0,
+      clicks: 0,
+      scrolls: 0,
+      idle_sec: 0,
     },
+    _id: false,
   })
-  behavior: {
-    total_keystrokes: number;
-    total_mouse_clicks: number;
-    total_scroll_events: number;
-    total_idle_sec: number;
-  };
+  behavior: BehaviorData;
 
   @Prop({ default: 1 })
   sync_version: number;
 
   @Prop({ type: Date, default: null })
   last_synced_at?: Date;
-
-  createdAt?: Date;
-  updatedAt?: Date;
 }
 
 export const ActivitySchema = SchemaFactory.createForClass(Activity);
