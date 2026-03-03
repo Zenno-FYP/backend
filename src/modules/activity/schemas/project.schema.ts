@@ -15,11 +15,11 @@ export class Project extends Document {
   @Prop({ required: true, index: true })
   project_name: string; // Project name from SQLite
 
-  @Prop({ type: Date, default: null })
-  first_seen_at?: Date;
+  @Prop({ type: String, default: null })
+  first_seen_at?: string; // ISO 8601 local timestamp
 
-  @Prop({ type: Date, default: null })
-  last_active_at?: Date;
+  @Prop({ type: String, default: null })
+  last_active_at?: string; // ISO 8601 local timestamp
 
   @Prop({
     type: [

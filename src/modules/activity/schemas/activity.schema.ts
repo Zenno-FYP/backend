@@ -8,7 +8,7 @@ interface BehaviorData {
   idle_sec: number;
 }
 
-@Schema({ versionKey: false, timestamps: true })
+@Schema({ versionKey: false })
 export class Activity extends Document {
   @Prop({ required: true, index: true, type: Types.ObjectId })
   user_id: Types.ObjectId; // Reference to users._id
@@ -51,11 +51,8 @@ export class Activity extends Document {
   @Prop({ default: 1 })
   sync_version: number;
 
-  @Prop({ type: Date, default: null })
-  last_synced_at?: Date;
-
-  createdAt?: Date; // Auto-managed by MongoDB (UTC)
-  updatedAt?: Date; // Auto-managed by MongoDB (UTC)
+  @Prop({ type: String, default: null })
+  last_synced_at?: string; // ISO 8601 local timestamp (preserved as-is from desktop)
 }
 
 export const ActivitySchema = SchemaFactory.createForClass(Activity);

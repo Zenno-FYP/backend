@@ -18,8 +18,8 @@ export class User extends Document {
   @Prop({ default: 'user' })
   role: string;
 
-  @Prop({ type: Date, default: null })
-  activity_sync_at?: Date;
+  @Prop({ type: String, default: null })
+  activity_sync_at?: string; // ISO 8601 local timestamp
 
   createdAt?: Date;
   updatedAt?: Date;

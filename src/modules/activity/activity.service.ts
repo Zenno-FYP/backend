@@ -54,13 +54,13 @@ export class ActivityService {
       session = await this.activityModel.startSession();
       session.startTransaction();
 
-      // Sync project buckets atomically
-      await this.syncProjectBuckets(userId, syncDto.data, syncTimestamp, session);
+      // Sync project buckets atomically (pass original local time string)
+      await this.syncProjectBuckets(userId, syncDto.data, syncDto.sync_timestamp, syncTimestamp, session);
 
-      // Update user's activity_sync_at timestamp within the transaction (use local time from payload)
+      // Update user's activity_sync_at timestamp within the transaction (use local time string from payload)
       await this.userModel.updateOne(
         { _id: user._id },
-        { $set: { activity_sync_at: syncTimestamp } },
+        { $set: { activity_sync_at: syncDto.sync_timestamp } },
         { session },
       );
 
@@ -79,13 +79,13 @@ export class ActivityService {
       return {
         success: true,
         message: 'Activity synced successfully',
-        sync_timestamp: syncTimestamp.toISOString(),
+        sync_timestamp: syncDto.sync_timestamp,
         user: {
           id: updatedUser._id,
           email: updatedUser.email,
           name: updatedUser.name,
           profile_photo: updatedUser.profilePhoto,
-          activity_sync_at: updatedUser.activity_sync_at?.toISOString() || null,
+          activity_sync_at: updatedUser.activity_sync_at || null,
           stats: syncStats,
         },
       };
@@ -105,12 +105,13 @@ export class ActivityService {
   private async syncProjectBuckets(
     userId: Types.ObjectId,
     buckets: ProjectSyncDto[],
-    clientTimestamp: Date,
+    syncTimestampStr: string,
+    syncTimestamp: Date,
     session: ClientSession,
   ) {
     for (const bucket of buckets) {
-      await this.upsertProject(userId, bucket, clientTimestamp, session);
-      await this.upsertDailyActivities(userId, bucket, clientTimestamp, session);
+      await this.upsertProject(userId, bucket, syncTimestampStr, session);
+      await this.upsertDailyActivities(userId, bucket, syncTimestampStr, session);
     }
 
     this.logger.debug(`✓ Synced ${buckets.length} project bucket(s)`);
@@ -119,16 +120,20 @@ export class ActivityService {
   private async upsertProject(
     userId: Types.ObjectId,
     bucket: ProjectSyncDto,
-    syncTimestamp: Date,
+    syncTimestampStr: string,
     session: ClientSession,
   ) {
-    const lastActiveAt = bucket.metadata?.last_active_at
-      ? new Date(bucket.metadata.last_active_at)
-      : syncTimestamp;
+    // Use local time strings from metadata, or fall back to sync timestamp
+    const lastActiveAtStr = bucket.metadata?.last_active_at || syncTimestampStr;
+    const firstSeenAtStr = bucket.metadata?.first_seen_at || syncTimestampStr;
 
-    const firstSeenAt = bucket.metadata?.first_seen_at
-      ? new Date(bucket.metadata.first_seen_at)
-      : syncTimestamp;
+    // Validate timestamps are valid ISO 8601
+    if (isNaN(new Date(lastActiveAtStr).getTime())) {
+      throw new BadRequestException(`Invalid last_active_at timestamp: ${lastActiveAtStr}`);
+    }
+    if (isNaN(new Date(firstSeenAtStr).getTime())) {
+      throw new BadRequestException(`Invalid first_seen_at timestamp: ${firstSeenAtStr}`);
+    }
 
     // Check if project already exists
     const existingProject = await this.projectModel.findOne(
@@ -142,15 +147,13 @@ export class ActivityService {
 
     const update: Record<string, any> = {
       $set: {
-        last_active_at: isNaN(lastActiveAt.getTime()) ? new Date() : lastActiveAt,
+        last_active_at: lastActiveAtStr,
       },
     };
 
     // Only set first_seen_at if project is NEW (doesn't exist yet)
     if (!existingProject) {
-      update.$set.first_seen_at = isNaN(firstSeenAt.getTime())
-        ? new Date()
-        : firstSeenAt;
+      update.$set.first_seen_at = firstSeenAtStr;
     }
 
     await this.projectModel.findOneAndUpdate(
@@ -192,7 +195,7 @@ export class ActivityService {
   private async upsertDailyActivities(
     userId: Types.ObjectId,
     bucket: ProjectSyncDto,
-    syncTimestamp: Date,
+    syncTimestampStr: string,
     session: ClientSession,
   ) {
     for (const day of bucket.days) {
@@ -206,8 +209,8 @@ export class ActivityService {
       }
 
       const $set: Record<string, any> = {
-        // last_synced_at uses local time from desktop sync timestamp
-        last_synced_at: syncTimestamp,
+        // last_synced_at preserves local time string exactly as sent from desktop
+        last_synced_at: syncTimestampStr,
       };
 
       // Languages, apps, skills, context are now direct maps
