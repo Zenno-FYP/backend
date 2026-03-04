@@ -102,11 +102,6 @@ export class ToolUsageResponseDto {
   period: string;
 
   @ApiProperty({
-    description: 'Timestamp when metrics were calculated',
-  })
-  sync_timestamp: string;
-
-  @ApiProperty({
     description: 'App usage statistics',
     type: TopAppsDto,
   })

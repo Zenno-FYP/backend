@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, ClientSession, Types } from 'mongoose';
 import { Activity } from './schemas/activity.schema';
@@ -11,8 +11,6 @@ import {
 
 @Injectable()
 export class ActivityService {
-  private readonly logger = new Logger(ActivityService.name);
-
   constructor(
     @InjectModel(Activity.name) private activityModel: Model<Activity>,
     @InjectModel(Project.name) private projectModel: Model<Project>,
@@ -64,8 +62,6 @@ export class ActivityService {
       const userLocalAsUtc = new Date(trimmedTimestamp + 'Z').getTime();
       const serverUtcNow = Date.now();
       const offsetHours = Math.round(((userLocalAsUtc - serverUtcNow) / (1000 * 60 * 60)) * 4) / 4; // Round to nearest 15 min
-      
-      this.logger.debug(`📍 Timezone offset calculated: ${offsetHours} hours from ${syncDto.sync_timestamp}`);
 
       // Update user's activity_sync_at timestamp and timezone offset within the transaction
       await this.userModel.updateOne(
@@ -89,8 +85,6 @@ export class ActivityService {
 
       const syncStats = await this.getActivityStatsByUserId(userId);
 
-      this.logger.log(`✓ Activity synced successfully for user: ${email}`);
-
       return {
         success: true,
         message: 'Activity synced successfully',
@@ -108,7 +102,6 @@ export class ActivityService {
       if (session) {
         await session.abortTransaction();
       }
-      this.logger.error(`Sync failed for ${email}:`, error.message);
       throw new BadRequestException(`Sync failed: ${error.message}`);
     } finally {
       if (session) {
@@ -128,8 +121,6 @@ export class ActivityService {
       await this.upsertProject(userId, bucket, syncTimestampStr, session);
       await this.upsertDailyActivities(userId, bucket, syncTimestampStr, session);
     }
-
-    this.logger.debug(`✓ Synced ${buckets.length} project bucket(s)`);
   }
 
   private async upsertProject(

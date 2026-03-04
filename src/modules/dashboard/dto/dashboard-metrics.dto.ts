@@ -97,12 +97,6 @@ export class PerformanceMetricsResponseDto {
   period: string;
 
   @ApiProperty({
-    example: '2026-03-02T14:30:00Z',
-    description: 'Timestamp when metrics were calculated',
-  })
-  sync_timestamp: string;
-
-  @ApiProperty({
     description: 'Performance summary metrics with trends',
     type: PerformanceSummaryDto,
   })

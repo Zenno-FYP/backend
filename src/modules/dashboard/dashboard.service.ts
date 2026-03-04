@@ -1,15 +1,17 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Activity } from '../activity/schemas/activity.schema';
+import { Project } from '../activity/schemas/project.schema';
 import { User } from '../user/schemas/user.schema';
 import { PerformanceMetricsResponseDto, UsageTrendBarDto } from './dto/dashboard-metrics.dto';
+import { ProjectInsightsResponseDto } from './dto/project-insights.dto';
 
 @Injectable()
 export class DashboardService {
-  private readonly logger = new Logger(DashboardService.name);
   constructor(
     @InjectModel(Activity.name) private activityModel: Model<Activity>,
+    @InjectModel(Project.name) private projectModel: Model<Project>,
     @InjectModel(User.name) private userModel: Model<User>,
   ) {}
 
@@ -40,12 +42,10 @@ export class DashboardService {
           userLocalNow.getUTCDate(),
         ),
       );
-      this.logger.debug(`📊 Using stored timezone offset: ${user.timezone_offset} hours`);
     } else {
       // Fallback to server UTC if no timezone offset stored
       today = new Date();
       today.setUTCHours(0, 0, 0, 0);
-      this.logger.debug(`📊 No timezone offset found, using server UTC date`);
     }
 
     // Current period: Today to Today-6 days (7 days inclusive)
@@ -59,20 +59,6 @@ export class DashboardService {
     const previousEnd = new Date(today);
     previousEnd.setUTCDate(today.getUTCDate() - 7);
 
-    this.logger.debug(`📊 Dashboard Query Range:`);
-    this.logger.debug(`  Current: ${currentStart.toISOString()} to ${today.toISOString()}`);
-    this.logger.debug(`  Previous: ${previousStart.toISOString()} to ${previousEnd.toISOString()}`);
-
-    // Debug: Check all activities for this user
-    const allActivities = await this.activityModel.find({ user_id: userId });
-    this.logger.debug(`📊 Total activities in DB for user: ${allActivities.length}`);
-    if (allActivities.length > 0) {
-      this.logger.debug(`📊 Date range of all activities:`);
-      allActivities.forEach(act => {
-        this.logger.debug(`  - ${act.project_name}: ${act.date.toISOString()}`);
-      });
-    }
-
     // Fetch current and previous period activities
     const [currentActivities, previousActivities] = await Promise.all([
       this.activityModel.find({
@@ -84,8 +70,6 @@ export class DashboardService {
         date: { $gte: previousStart, $lt: previousEnd },
       }),
     ]);
-
-    this.logger.debug(`📊 Found ${currentActivities.length} current, ${previousActivities.length} previous activities`);
 
     // Calculate metrics for both periods
     const currentMetrics = this.calculateMetrics(currentActivities);
@@ -125,7 +109,6 @@ export class DashboardService {
 
     return {
       period: 'last_7_days',
-      sync_timestamp: new Date().toISOString(),
       performance_summary: performanceSummary,
       usage_trend_graph: usageTrendGraph,
     };
@@ -139,7 +122,6 @@ export class DashboardService {
    */
   private calculateMetrics(activities: Activity[]) {
     if (activities.length === 0) {
-      this.logger.warn(`⚠️ No activities found for metric calculation`);
       return {
         wpm: 0,
         dailyActiveAverage: 0,
@@ -148,8 +130,6 @@ export class DashboardService {
         totalIdleHours: 0,
       };
     }
-
-    this.logger.debug(`🔍 Calculating metrics from ${activities.length} activities`);
 
     let totalKeystrokes = 0;
     let totalClicks = 0;
@@ -177,8 +157,6 @@ export class DashboardService {
       // Count active days
       activeDays.add(activity.date.toISOString().split('T')[0]);
     }
-
-    this.logger.debug(`  Total Keystrokes: ${totalKeystrokes}, Duration: ${totalDurationSeconds}s, Active Days: ${activeDays.size}`);
 
     // WPM calculation: keystrokes per minute (includes all context states)
     const totalActiveMinutes = totalDurationSeconds / 60;
@@ -303,5 +281,62 @@ export class DashboardService {
     }
 
     return { focused, reading, distracted, idle };
+  }
+
+  /**
+   * Get project insights: strongest skills (all-time) and current projects
+   */
+  async getProjectInsights(email: string): Promise<ProjectInsightsResponseDto> {
+    // Verify user exists
+    const user = await this.userModel.findOne({ email });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const userId = user._id;
+
+    // Get all projects for this user
+    const projects = await this.projectModel.find({ user_id: userId });
+
+    // Calculate strongest skills (all-time cumulative)
+    const skillMap = new Map<string, number>(); // skill_name -> total_duration_sec
+    let totalDurationSec = 0;
+
+    for (const project of projects) {
+      if (project.project_skills && Array.isArray(project.project_skills)) {
+        for (const skill of project.project_skills) {
+          const currentDuration = skillMap.get(skill.skill_name) || 0;
+          skillMap.set(skill.skill_name, currentDuration + skill.duration_sec);
+          totalDurationSec += skill.duration_sec;
+        }
+      }
+    }
+
+    // Convert to sorted array and get top 5
+    const strongestSkills = Array.from(skillMap.entries())
+      .map(([name, durationSec]) => ({
+        name,
+        percent: totalDurationSec > 0 ? Math.round((durationSec / totalDurationSec) * 1000) / 10 : 0,
+      }))
+      .sort((a, b) => b.percent - a.percent)
+      .slice(0, 5);
+
+    // Get current projects sorted by last_active_at (most recent first)
+    const currentProjects = projects
+      .filter(p => p.last_active_at) // Only include projects with last_active_at
+      .sort((a, b) => {
+        const dateA = new Date(a.last_active_at!).getTime();
+        const dateB = new Date(b.last_active_at!).getTime();
+        return dateB - dateA; // Descending order (most recent first)
+      })
+      .map(p => ({
+        name: p.project_name,
+        last_active: p.last_active_at!,
+      }));
+
+    return {
+      strongest_skills: strongestSkills,
+      current_projects: currentProjects,
+    };
   }
 }

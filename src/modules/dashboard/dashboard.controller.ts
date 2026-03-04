@@ -5,6 +5,7 @@ import { ToolUsageService } from './tool-usage.service';
 import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
 import { PerformanceMetricsResponseDto } from './dto/dashboard-metrics.dto';
 import { ToolUsageResponseDto } from './dto/tool-usage.dto';
+import { ProjectInsightsResponseDto } from './dto/project-insights.dto';
 
 @ApiTags('Dashboard')
 @Controller('api/v1/dashboard')
@@ -45,20 +46,18 @@ export class DashboardController {
     return this.toolUsageService.getToolUsage(req.user.email);
   }
 
-  // Placeholder for project-insights endpoint
   @Get('project-insights')
   @ApiOperation({
     summary: 'Get project insights',
-    description: 'Get insights and analytics for each project.',
+    description: 'Get strongest skills (cumulative all-time) and current projects sorted by recency.',
   })
   @ApiResponse({
     status: 200,
     description: 'Project insights retrieved successfully',
   })
-  async getProjectInsights(@Request() req: any) {
-    return {
-      message: 'Project insights endpoint - coming soon',
-      note: 'Implementation pending',
-    };
+  @ApiResponse({ status: 401, description: 'Unauthorized - Invalid firebase token' })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  async getProjectInsights(@Request() req: any): Promise<ProjectInsightsResponseDto> {
+    return this.dashboardService.getProjectInsights(req.user.email);
   }
 }
