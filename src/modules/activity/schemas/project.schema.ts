@@ -7,6 +7,11 @@ interface CurrentLocItem {
   files: number;
 }
 
+interface ProjectSkillItem {
+  skill_name: string;
+  duration_sec: number;
+}
+
 @Schema({ versionKey: false })
 export class Project extends Document {
   @Prop({ required: true, index: true, type: Types.ObjectId })
@@ -15,11 +20,11 @@ export class Project extends Document {
   @Prop({ required: true, index: true })
   project_name: string; // Project name from SQLite
 
-  @Prop({ type: Date, default: null })
-  first_seen_at?: Date;
+  @Prop({ type: String, default: null })
+  first_seen_at?: string; // ISO 8601 local timestamp
 
-  @Prop({ type: Date, default: null })
-  last_active_at?: Date;
+  @Prop({ type: String, default: null })
+  last_active_at?: string; // ISO 8601 local timestamp
 
   @Prop({
     type: [
@@ -27,11 +32,24 @@ export class Project extends Document {
         language: { type: String },
         lines: { type: Number, default: 0 },
         files: { type: Number, default: 0 },
+        _id: false,
       },
     ],
     default: [],
   })
   current_loc: CurrentLocItem[];
+
+  @Prop({
+    type: [
+      {
+        skill_name: { type: String },
+        duration_sec: { type: Number, default: 0 },
+        _id: false,
+      },
+    ],
+    default: [],
+  })
+  project_skills: ProjectSkillItem[]; // Cumulative skills breakdown per project
 }
 
 export const ProjectSchema = SchemaFactory.createForClass(Project);

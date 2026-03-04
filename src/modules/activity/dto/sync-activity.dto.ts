@@ -24,7 +24,7 @@ export class BehaviorDto {
 
 export class DayBucketDto {
   @IsString()
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD (local calendar date)
 
   @IsOptional()
   @IsObject()
@@ -33,10 +33,6 @@ export class DayBucketDto {
   @IsOptional()
   @IsObject()
   apps?: Record<string, number>; // { "vscode": 1400, "chrome": 100 }
-
-  @IsOptional()
-  @IsObject()
-  skills?: Record<string, number>; // { "backend": 1000, "debugging": 500 }
 
   @IsOptional()
   @IsObject()
@@ -59,14 +55,22 @@ export class CurrentLocDto {
   files: number;
 }
 
+export class ProjectSkillDto {
+  @IsString()
+  skill_name: string; // Skill label (inferred from language, file types, context)
+
+  @IsNumber()
+  duration_sec: number; // Cumulative seconds spent on this skill across the project
+}
+
 export class ProjectMetadataDto {
   @IsOptional()
   @IsString()
-  first_seen_at?: string; // ISO 8601 (only on new projects)
+  first_seen_at?: string; // ISO 8601 local timestamp (only on new projects, e.g., "2026-03-01T14:30:45")
 
   @IsOptional()
   @IsString()
-  last_active_at?: string; // ISO 8601
+  last_active_at?: string; // ISO 8601 local timestamp (e.g., "2026-03-01T14:30:45")
 }
 
 export class ProjectSyncDto {
@@ -83,6 +87,12 @@ export class ProjectSyncDto {
   @ValidateNested({ each: true })
   @Type(() => CurrentLocDto)
   current_loc?: CurrentLocDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProjectSkillDto)
+  project_skills?: ProjectSkillDto[]; // Cumulative skills breakdown per project
 
   @IsArray()
   @ValidateNested({ each: true })
