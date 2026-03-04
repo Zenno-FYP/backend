@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Activity } from '../activity/schemas/activity.schema';
@@ -7,6 +7,7 @@ import { PerformanceMetricsResponseDto, UsageTrendBarDto } from './dto/dashboard
 
 @Injectable()
 export class DashboardService {
+  private readonly logger = new Logger(DashboardService.name);
   constructor(
     @InjectModel(Activity.name) private activityModel: Model<Activity>,
     @InjectModel(User.name) private userModel: Model<User>,
@@ -25,8 +26,27 @@ export class DashboardService {
     }
 
     const userId = user._id;
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+
+    // Calculate user's local "today" using stored timezone offset
+    let today: Date;
+    if (user.timezone_offset !== undefined && user.timezone_offset !== null) {
+      // Use stored timezone offset
+      const now = new Date();
+      const userLocalNow = new Date(now.getTime() + user.timezone_offset * 60 * 60 * 1000);
+      today = new Date(
+        Date.UTC(
+          userLocalNow.getUTCFullYear(),
+          userLocalNow.getUTCMonth(),
+          userLocalNow.getUTCDate(),
+        ),
+      );
+      this.logger.debug(`📊 Using stored timezone offset: ${user.timezone_offset} hours`);
+    } else {
+      // Fallback to server UTC if no timezone offset stored
+      today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      this.logger.debug(`📊 No timezone offset found, using server UTC date`);
+    }
 
     // Current period: Today to Today-6 days (7 days inclusive)
     const currentStart = new Date(today);
@@ -39,6 +59,20 @@ export class DashboardService {
     const previousEnd = new Date(today);
     previousEnd.setUTCDate(today.getUTCDate() - 7);
 
+    this.logger.debug(`📊 Dashboard Query Range:`);
+    this.logger.debug(`  Current: ${currentStart.toISOString()} to ${today.toISOString()}`);
+    this.logger.debug(`  Previous: ${previousStart.toISOString()} to ${previousEnd.toISOString()}`);
+
+    // Debug: Check all activities for this user
+    const allActivities = await this.activityModel.find({ user_id: userId });
+    this.logger.debug(`📊 Total activities in DB for user: ${allActivities.length}`);
+    if (allActivities.length > 0) {
+      this.logger.debug(`📊 Date range of all activities:`);
+      allActivities.forEach(act => {
+        this.logger.debug(`  - ${act.project_name}: ${act.date.toISOString()}`);
+      });
+    }
+
     // Fetch current and previous period activities
     const [currentActivities, previousActivities] = await Promise.all([
       this.activityModel.find({
@@ -50,6 +84,8 @@ export class DashboardService {
         date: { $gte: previousStart, $lt: previousEnd },
       }),
     ]);
+
+    this.logger.debug(`📊 Found ${currentActivities.length} current, ${previousActivities.length} previous activities`);
 
     // Calculate metrics for both periods
     const currentMetrics = this.calculateMetrics(currentActivities);
@@ -103,6 +139,7 @@ export class DashboardService {
    */
   private calculateMetrics(activities: Activity[]) {
     if (activities.length === 0) {
+      this.logger.warn(`⚠️ No activities found for metric calculation`);
       return {
         wpm: 0,
         dailyActiveAverage: 0,
@@ -111,6 +148,8 @@ export class DashboardService {
         totalIdleHours: 0,
       };
     }
+
+    this.logger.debug(`🔍 Calculating metrics from ${activities.length} activities`);
 
     let totalKeystrokes = 0;
     let totalClicks = 0;
@@ -138,6 +177,8 @@ export class DashboardService {
       // Count active days
       activeDays.add(activity.date.toISOString().split('T')[0]);
     }
+
+    this.logger.debug(`  Total Keystrokes: ${totalKeystrokes}, Duration: ${totalDurationSeconds}s, Active Days: ${activeDays.size}`);
 
     // WPM calculation: keystrokes per minute (includes all context states)
     const totalActiveMinutes = totalDurationSeconds / 60;

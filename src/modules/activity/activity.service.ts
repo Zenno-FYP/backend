@@ -57,10 +57,25 @@ export class ActivityService {
       // Sync project buckets atomically (pass original local time string)
       await this.syncProjectBuckets(userId, syncDto.data, syncDto.sync_timestamp, syncTimestamp, session);
 
-      // Update user's activity_sync_at timestamp within the transaction (use local time string from payload)
+      // Calculate and store timezone offset
+      // sync_timestamp is in local time with microseconds (e.g., "2026-03-04T02:01:41.525702")
+      // Trim to milliseconds (JavaScript doesn't support microseconds) and treat as UTC reference
+      const trimmedTimestamp = syncDto.sync_timestamp.substring(0, 23); // "2026-03-04T02:01:41.525"
+      const userLocalAsUtc = new Date(trimmedTimestamp + 'Z').getTime();
+      const serverUtcNow = Date.now();
+      const offsetHours = Math.round(((userLocalAsUtc - serverUtcNow) / (1000 * 60 * 60)) * 4) / 4; // Round to nearest 15 min
+      
+      this.logger.debug(`📍 Timezone offset calculated: ${offsetHours} hours from ${syncDto.sync_timestamp}`);
+
+      // Update user's activity_sync_at timestamp and timezone offset within the transaction
       await this.userModel.updateOne(
         { _id: user._id },
-        { $set: { activity_sync_at: syncDto.sync_timestamp } },
+        { 
+          $set: { 
+            activity_sync_at: syncDto.sync_timestamp,
+            timezone_offset: offsetHours 
+          } 
+        },
         { session },
       );
 
@@ -190,6 +205,27 @@ export class ActivityService {
         { session },
       );
     }
+
+    // Update project_skills if provided (cumulative skills breakdown)
+    if (bucket.project_skills && bucket.project_skills.length > 0) {
+      const projectSkills = bucket.project_skills.map((skill) => ({
+        skill_name: skill.skill_name,
+        duration_sec: skill.duration_sec,
+      }));
+
+      await this.projectModel.updateOne(
+        {
+          user_id: userId,
+          project_name: bucket.project_name,
+        },
+        {
+          $set: {
+            project_skills: projectSkills,
+          },
+        },
+        { session },
+      );
+    }
   }
 
   private async upsertDailyActivities(
@@ -213,7 +249,7 @@ export class ActivityService {
         last_synced_at: syncTimestampStr,
       };
 
-      // Languages, apps, skills, context are now direct maps
+      // Languages, apps, context are direct maps
       if (day.languages && Object.keys(day.languages).length > 0) {
         for (const [name, duration] of Object.entries(day.languages)) {
           $set[`languages.${name}`] = duration;
@@ -223,12 +259,6 @@ export class ActivityService {
       if (day.apps && Object.keys(day.apps).length > 0) {
         for (const [name, duration] of Object.entries(day.apps)) {
           $set[`apps.${name}`] = duration;
-        }
-      }
-
-      if (day.skills && Object.keys(day.skills).length > 0) {
-        for (const [name, duration] of Object.entries(day.skills)) {
-          $set[`skills.${name}`] = duration;
         }
       }
 

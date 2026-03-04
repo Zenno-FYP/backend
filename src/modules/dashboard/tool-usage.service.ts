@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Activity } from '../activity/schemas/activity.schema';
@@ -8,6 +8,8 @@ import { ToolUsageResponseDto } from './dto/tool-usage.dto';
 
 @Injectable()
 export class ToolUsageService {
+  private readonly logger = new Logger(ToolUsageService.name);
+
   constructor(
     @InjectModel(Activity.name) private activityModel: Model<Activity>,
     @InjectModel(Project.name) private projectModel: Model<Project>,
@@ -25,8 +27,27 @@ export class ToolUsageService {
     }
 
     const userId = user._id as Types.ObjectId;
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+
+    // Calculate user's local "today" using stored timezone offset
+    let today: Date;
+    if (user.timezone_offset !== undefined && user.timezone_offset !== null) {
+      // Use stored timezone offset
+      const now = new Date();
+      const userLocalNow = new Date(now.getTime() + user.timezone_offset * 60 * 60 * 1000);
+      today = new Date(
+        Date.UTC(
+          userLocalNow.getUTCFullYear(),
+          userLocalNow.getUTCMonth(),
+          userLocalNow.getUTCDate(),
+        ),
+      );
+      this.logger.debug(`📊 Using stored timezone offset: ${user.timezone_offset} hours`);
+    } else {
+      // Fallback to server UTC if no timezone offset stored
+      today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      this.logger.debug(`📊 No timezone offset found, using server UTC date`);
+    }
 
     // Current period: Last 7 days
     const currentStart = new Date(today);

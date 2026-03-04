@@ -7,6 +7,11 @@ interface CurrentLocItem {
   files: number;
 }
 
+interface ProjectSkillItem {
+  skill_name: string;
+  duration_sec: number;
+}
+
 @Schema({ versionKey: false })
 export class Project extends Document {
   @Prop({ required: true, index: true, type: Types.ObjectId })
@@ -33,6 +38,18 @@ export class Project extends Document {
     default: [],
   })
   current_loc: CurrentLocItem[];
+
+  @Prop({
+    type: [
+      {
+        skill_name: { type: String },
+        duration_sec: { type: Number, default: 0 },
+        _id: false,
+      },
+    ],
+    default: [],
+  })
+  project_skills: ProjectSkillItem[]; // Cumulative skills breakdown per project
 }
 
 export const ProjectSchema = SchemaFactory.createForClass(Project);

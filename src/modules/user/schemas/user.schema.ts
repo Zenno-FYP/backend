@@ -21,6 +21,9 @@ export class User extends Document {
   @Prop({ type: String, default: null })
   activity_sync_at?: string; // ISO 8601 local timestamp
 
+  @Prop({ type: Number, default: 0 })
+  timezone_offset?: number; // Hours offset from UTC (e.g., +5 for UTC+5)
+
   createdAt?: Date;
   updatedAt?: Date;
 }

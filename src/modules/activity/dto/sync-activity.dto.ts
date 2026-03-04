@@ -36,10 +36,6 @@ export class DayBucketDto {
 
   @IsOptional()
   @IsObject()
-  skills?: Record<string, number>; // { "backend": 1000, "debugging": 500 }
-
-  @IsOptional()
-  @IsObject()
   context?: Record<string, number>; // { "focused": 1200, "reading": 300 }
 
   @IsOptional()
@@ -57,6 +53,14 @@ export class CurrentLocDto {
 
   @IsNumber()
   files: number;
+}
+
+export class ProjectSkillDto {
+  @IsString()
+  skill_name: string; // Skill label (inferred from language, file types, context)
+
+  @IsNumber()
+  duration_sec: number; // Cumulative seconds spent on this skill across the project
 }
 
 export class ProjectMetadataDto {
@@ -83,6 +87,12 @@ export class ProjectSyncDto {
   @ValidateNested({ each: true })
   @Type(() => CurrentLocDto)
   current_loc?: CurrentLocDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProjectSkillDto)
+  project_skills?: ProjectSkillDto[]; // Cumulative skills breakdown per project
 
   @IsArray()
   @ValidateNested({ each: true })

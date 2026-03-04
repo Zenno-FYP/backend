@@ -26,9 +26,6 @@ export class Activity extends Document {
   apps: Map<string, number>; // {app_name: duration_sec}
 
   @Prop({ type: Map, of: Number, default: {} })
-  skills: Map<string, number>; // {skill_name: duration_sec}
-
-  @Prop({ type: Map, of: Number, default: {} })
   context: Map<string, number>; // {context_state: duration_sec}
 
   @Prop({
@@ -47,9 +44,6 @@ export class Activity extends Document {
     _id: false,
   })
   behavior: BehaviorData;
-
-  @Prop({ default: 1 })
-  sync_version: number;
 
   @Prop({ type: String, default: null })
   last_synced_at?: string; // ISO 8601 local timestamp (preserved as-is from desktop)
