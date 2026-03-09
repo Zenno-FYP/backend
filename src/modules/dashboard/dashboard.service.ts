@@ -77,29 +77,32 @@ export class DashboardService {
 
     // Build performance summary metrics with trends
     const performanceSummary = {
-      wpm: {
-        value: Math.round(currentMetrics.wpm * 100) / 100,
-        change_percent: this.calculateTrendPercent(currentMetrics.wpm, previousMetrics.wpm),
+      avg_typing_intensity: {
+        value: Math.round(currentMetrics.avgTypingIntensity * 100) / 100,
+        change_percent: this.calculateTrendPercent(
+          currentMetrics.avgTypingIntensity,
+          previousMetrics.avgTypingIntensity,
+        ),
+      },
+      avg_mouse_click_rate: {
+        value: Math.round(currentMetrics.avgMouseClickRate * 100) / 100,
+        change_percent: this.calculateTrendPercent(
+          currentMetrics.avgMouseClickRate,
+          previousMetrics.avgMouseClickRate,
+        ),
+      },
+      avg_corrections: {
+        value: Math.round(currentMetrics.avgCorrections * 100) / 100,
+        change_percent: this.calculateTrendPercent(
+          currentMetrics.avgCorrections,
+          previousMetrics.avgCorrections,
+        ),
       },
       daily_active_average: {
         value: Math.round(currentMetrics.dailyActiveAverage * 100) / 100,
         change_percent: this.calculateTrendPercent(
           currentMetrics.dailyActiveAverage,
           previousMetrics.dailyActiveAverage,
-        ),
-      },
-      total_clicks: {
-        value: currentMetrics.totalClicks,
-        change_percent: this.calculateTrendPercent(
-          currentMetrics.totalClicks,
-          previousMetrics.totalClicks,
-        ),
-      },
-      total_scrolls: {
-        value: currentMetrics.totalScrolls,
-        change_percent: this.calculateTrendPercent(
-          currentMetrics.totalScrolls,
-          previousMetrics.totalScrolls,
         ),
       },
     };
@@ -116,34 +119,34 @@ export class DashboardService {
 
   /**
    * Calculate performance metrics from activity records
-   * Formulas:
-   * - WPM: (Total Keystrokes / 5) / (total context duration in minutes)
-   * - Daily Active Average: (total context duration in hours) / number of active days
+   * Metrics:
+   * - avgTypingIntensity: Average typing intensity (KPM) - summed from db, divided by active days
+   * - avgMouseClickRate: Average mouse click rate (CPM) - summed from db, divided by active days
+   * - avgCorrections: Average corrections per active day (deletion/backspace key presses)
+   * - dailyActiveAverage: (total context duration in hours) / number of active days
    */
   private calculateMetrics(activities: Activity[]) {
     if (activities.length === 0) {
       return {
-        wpm: 0,
+        avgTypingIntensity: 0,
+        avgMouseClickRate: 0,
+        avgCorrections: 0,
         dailyActiveAverage: 0,
-        totalClicks: 0,
-        totalScrolls: 0,
-        totalIdleHours: 0,
       };
     }
 
-    let totalKeystrokes = 0;
-    let totalClicks = 0;
-    let totalScrolls = 0;
-    let totalDurationSeconds = 0; // All context states: Focused + Reading + Distracted + Idle
+    let totalTypingIntensity = 0;
+    let totalMouseClickRate = 0;
+    let totalCorrections = 0;
+    let totalDurationSeconds = 0;
     const activeDays = new Set<string>();
 
     for (const activity of activities) {
-      // Behavior metrics
-      totalKeystrokes += activity.behavior?.keystrokes || 0;
-      totalClicks += activity.behavior?.clicks || 0;
-      totalScrolls += activity.behavior?.scrolls || 0;
+      totalTypingIntensity += activity.behavior?.typing_intensity_kpm || 0;
+      totalMouseClickRate += activity.behavior?.mouse_click_rate_cpm || 0;
+      totalCorrections += activity.behavior?.total_deletion_key_presses || 0;
+      activeDays.add(activity.date.toISOString().split('T')[0]);
 
-      // Context durations - sum all context states for total duration
       if (activity.context) {
         const contextEntries = activity.context instanceof Map
           ? Array.from(activity.context.values())
@@ -153,24 +156,21 @@ export class DashboardService {
           totalDurationSeconds += (duration as number) || 0;
         }
       }
-
-      // Count active days
-      activeDays.add(activity.date.toISOString().split('T')[0]);
     }
 
-    // WPM calculation: keystrokes per minute (includes all context states)
-    const totalActiveMinutes = totalDurationSeconds / 60;
-    const wpm = totalActiveMinutes > 0 ? (totalKeystrokes / 5) / totalActiveMinutes : 0;
-
-    // Daily active average: All context durations (Hours) / Count of Active Days
     const totalDurationHours = totalDurationSeconds / 3600;
-    const dailyActiveAverage = activeDays.size > 0 ? totalDurationHours / activeDays.size : 0;
+    const activeDaysCount = activeDays.size || 1;
+    const dailyActiveAverage = totalDurationHours / activeDaysCount;
+
+    const avgTypingIntensity = Math.round((totalTypingIntensity / activeDaysCount) * 10) / 10;
+    const avgMouseClickRate = Math.round((totalMouseClickRate / activeDaysCount) * 10) / 10;
+    const avgCorrections = Math.round((totalCorrections / activeDaysCount) * 10) / 10;
 
     return {
-      wpm,
+      avgTypingIntensity,
+      avgMouseClickRate,
+      avgCorrections,
       dailyActiveAverage,
-      totalClicks,
-      totalScrolls,
     };
   }
 
@@ -199,10 +199,7 @@ export class DashboardService {
       if (!dayMap.has(dateStr)) {
         dayMap.set(dateStr, []);
       }
-      const dayActivities = dayMap.get(dateStr);
-      if (dayActivities) {
-        dayActivities.push(activity);
-      }
+      dayMap.get(dateStr)!.push(activity);
     }
 
     // Generate 7 days of data
@@ -216,19 +213,17 @@ export class DashboardService {
       const dayActivities = dayMap.get(dateStr) || [];
 
       // Calculate hours for each context category (aggregates across all projects)
-      const { focused, reading, distracted, idle } = this.categorizeActivities(dayActivities);
-
-      // Total active hours = sum of all context states (Focused + Reading + Distracted + Idle)
-      const totalActive = focused + reading + distracted + idle;
+      const { flow, debugging, research, communication, distracted } =
+        this.categorizeActivities(dayActivities);
 
       result.push({
         date: dateStr,
         day_name: dayNames[date.getUTCDay()],
-        focused_hours: Math.round(focused * 100) / 100,
-        reading_hours: Math.round(reading * 100) / 100,
+        flow_hours: Math.round(flow * 100) / 100,
+        debugging_hours: Math.round(debugging * 100) / 100,
+        research_hours: Math.round(research * 100) / 100,
+        communication_hours: Math.round(communication * 100) / 100,
         distracted_hours: Math.round(distracted * 100) / 100,
-        idle_hours: Math.round(idle * 100) / 100,
-        total_active_hours: Math.round(totalActive * 100) / 100,
       });
     }
 
@@ -238,49 +233,50 @@ export class DashboardService {
   private categorizeActivities(
     activities: Activity[],
   ): {
-    focused: number;
-    reading: number;
+    flow: number;
+    debugging: number;
+    research: number;
+    communication: number;
     distracted: number;
-    idle: number;
   } {
-    let focused = 0;
-    let reading = 0;
+    let flow = 0;
+    let debugging = 0;
+    let research = 0;
+    let communication = 0;
     let distracted = 0;
-    let idle = 0;
 
     for (const activity of activities) {
       if (activity.context) {
-        // Handle both Map and plain object for context
         const contextEntries = activity.context instanceof Map
           ? Array.from(activity.context.entries())
           : Object.entries(activity.context);
 
         for (const [contextType, duration] of contextEntries) {
           const hours = ((duration as number) || 0) / 3600;
+          const normalizedType = contextType.toUpperCase();
 
-          switch (contextType) {
-            case 'Focused':
-            case 'focused':
-              focused += hours;
+          switch (normalizedType) {
+            case 'FLOW':
+              flow += hours;
               break;
-            case 'Reading':
-            case 'reading':
-              reading += hours;
+            case 'DEBUGGING':
+              debugging += hours;
               break;
-            case 'Distracted':
-            case 'distracted':
+            case 'RESEARCH':
+              research += hours;
+              break;
+            case 'COMMUNICATION':
+              communication += hours;
+              break;
+            case 'DISTRACTED':
               distracted += hours;
-              break;
-            case 'Idle':
-            case 'idle':
-              idle += hours;
               break;
           }
         }
       }
     }
 
-    return { focused, reading, distracted, idle };
+    return { flow, debugging, research, communication, distracted };
   }
 
   /**
@@ -299,20 +295,19 @@ export class DashboardService {
     const projects = await this.projectModel.find({ user_id: userId });
 
     // Calculate strongest skills (all-time cumulative)
-    const skillMap = new Map<string, number>(); // skill_name -> total_duration_sec
-    let totalDurationSec = 0;
+    const skillMap = new Map<string, number>();
 
     for (const project of projects) {
       if (project.project_skills && Array.isArray(project.project_skills)) {
         for (const skill of project.project_skills) {
           const currentDuration = skillMap.get(skill.skill_name) || 0;
           skillMap.set(skill.skill_name, currentDuration + skill.duration_sec);
-          totalDurationSec += skill.duration_sec;
         }
       }
     }
 
-    // Convert to sorted array and get top 5
+    const totalDurationSec = Array.from(skillMap.values()).reduce((sum, duration) => sum + duration, 0);
+
     const strongestSkills = Array.from(skillMap.entries())
       .map(([name, durationSec]) => ({
         name,

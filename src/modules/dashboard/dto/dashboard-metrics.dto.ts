@@ -16,28 +16,28 @@ export class MetricValueDto {
 
 export class PerformanceSummaryDto {
   @ApiProperty({
-    description: 'Words per minute (keystrokes / 5) / active minutes',
+    description: 'Average typing intensity (keystrokes per minute)',
     type: MetricValueDto,
   })
-  wpm: MetricValueDto;
+  avg_typing_intensity: MetricValueDto;
+
+  @ApiProperty({
+    description: 'Average mouse click rate (clicks per minute)',
+    type: MetricValueDto,
+  })
+  avg_mouse_click_rate: MetricValueDto;
+
+  @ApiProperty({
+    description: 'Average corrections per active day (deletion/backspace key presses)',
+    type: MetricValueDto,
+  })
+  avg_corrections: MetricValueDto;
 
   @ApiProperty({
     description: 'Daily active average: total duration / count of active days',
     type: MetricValueDto,
   })
   daily_active_average: MetricValueDto;
-
-  @ApiProperty({
-    description: 'Total clicks sum',
-    type: MetricValueDto,
-  })
-  total_clicks: MetricValueDto;
-
-  @ApiProperty({
-    description: 'Total scrolls sum',
-    type: MetricValueDto,
-  })
-  total_scrolls: MetricValueDto;
 }
 
 export class UsageTrendBarDto {
@@ -55,38 +55,38 @@ export class UsageTrendBarDto {
 
   @ApiProperty({
     example: 4.5,
-    description: 'Focused hours (coding, debugging, testing)',
+    description: 'Flow hours (deep focus, coding work)',
     type: Number,
   })
-  focused_hours: number;
+  flow_hours: number;
 
   @ApiProperty({
     example: 1.5,
-    description: 'Reading hours (research, documentation)',
+    description: 'Debugging hours (debugging and fixing code)',
     type: Number,
   })
-  reading_hours: number;
+  debugging_hours: number;
+
+  @ApiProperty({
+    example: 2.0,
+    description: 'Research hours (research, documentation, learning)',
+    type: Number,
+  })
+  research_hours: number;
 
   @ApiProperty({
     example: 0.5,
-    description: 'Distracted hours (social media, communication, entertainment)',
+    description: 'Communication hours (meetings, chat, collaboration)',
+    type: Number,
+  })
+  communication_hours: number;
+
+  @ApiProperty({
+    example: 0.3,
+    description: 'Distracted hours (distracted, off-task)',
     type: Number,
   })
   distracted_hours: number;
-
-  @ApiProperty({
-    example: 0.5,
-    description: 'Idle hours',
-    type: Number,
-  })
-  idle_hours: number;
-
-  @ApiProperty({
-    example: 7.0,
-    description: 'Total active hours of the day',
-    type: Number,
-  })
-  total_active_hours: number;
 }
 
 export class PerformanceMetricsResponseDto {
