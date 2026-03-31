@@ -122,7 +122,8 @@ export class DashboardService {
    * Metrics:
    * - avgTypingIntensity: Average typing intensity (KPM) - summed from db, divided by active days
    * - avgMouseClickRate: Average mouse click rate (CPM) - summed from db, divided by active days
-   * - avgCorrections: Average corrections per active day (deletion/backspace key presses)
+   * - avgCorrections: Correction rate % = (total_deletions / total_estimated_keystrokes) * 100
+   *   where total_estimated_keystrokes = typing_intensity_kpm * (context_duration_minutes)
    * - dailyActiveAverage: (total context duration in hours) / number of active days
    */
   private calculateMetrics(activities: Activity[]) {
@@ -137,25 +138,36 @@ export class DashboardService {
 
     let totalTypingIntensity = 0;
     let totalMouseClickRate = 0;
-    let totalCorrections = 0;
+    let totalDeletionKeyPresses = 0;
+    let totalEstimatedKeystrokes = 0;
     let totalDurationSeconds = 0;
     const activeDays = new Set<string>();
 
     for (const activity of activities) {
-      totalTypingIntensity += activity.behavior?.typing_intensity_kpm || 0;
+      const typingIntensity = activity.behavior?.typing_intensity_kpm || 0;
+      totalTypingIntensity += typingIntensity;
       totalMouseClickRate += activity.behavior?.mouse_click_rate_cpm || 0;
-      totalCorrections += activity.behavior?.total_deletion_key_presses || 0;
+      totalDeletionKeyPresses += activity.behavior?.total_deletion_key_presses || 0;
       activeDays.add(activity.date.toISOString().split('T')[0]);
 
+      // Calculate context duration for this activity to estimate keystrokes
+      let activityDurationSeconds = 0;
       if (activity.context) {
         const contextEntries = activity.context instanceof Map
           ? Array.from(activity.context.values())
           : Object.values(activity.context);
 
         for (const duration of contextEntries) {
-          totalDurationSeconds += (duration as number) || 0;
+          const durationSec = (duration as number) || 0;
+          activityDurationSeconds += durationSec;
+          totalDurationSeconds += durationSec;
         }
       }
+
+      // Estimate keystrokes for this activity: KPM * (duration in minutes)
+      const activityDurationMinutes = activityDurationSeconds / 60;
+      const estimatedKeystrokes = typingIntensity * activityDurationMinutes;
+      totalEstimatedKeystrokes += estimatedKeystrokes;
     }
 
     const totalDurationHours = totalDurationSeconds / 3600;
@@ -164,12 +176,17 @@ export class DashboardService {
 
     const avgTypingIntensity = Math.round((totalTypingIntensity / activeDaysCount) * 10) / 10;
     const avgMouseClickRate = Math.round((totalMouseClickRate / activeDaysCount) * 10) / 10;
-    const avgCorrections = Math.round((totalCorrections / activeDaysCount) * 10) / 10;
+
+    // Correction rate: (total deletions / total estimated keystrokes) * 100
+    const correctionRate =
+      totalEstimatedKeystrokes > 0
+        ? Math.round((totalDeletionKeyPresses / totalEstimatedKeystrokes) * 1000) / 10
+        : 0;
 
     return {
       avgTypingIntensity,
       avgMouseClickRate,
-      avgCorrections,
+      avgCorrections: correctionRate,
       dailyActiveAverage,
     };
   }

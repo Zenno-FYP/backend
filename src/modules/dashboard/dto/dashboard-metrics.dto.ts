@@ -28,7 +28,7 @@ export class PerformanceSummaryDto {
   avg_mouse_click_rate: MetricValueDto;
 
   @ApiProperty({
-    description: 'Average corrections per active day (deletion/backspace key presses)',
+    description: 'Correction rate percentage (deletions / estimated keystrokes * 100)',
     type: MetricValueDto,
   })
   avg_corrections: MetricValueDto;
