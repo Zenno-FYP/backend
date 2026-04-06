@@ -2,10 +2,11 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
 interface BehaviorData {
-  keystrokes: number;
-  clicks: number;
-  scrolls: number;
-  idle_sec: number;
+  typing_intensity_kpm: number; // Keystrokes per minute
+  mouse_click_rate_cpm: number; // Mouse clicks per minute
+  total_deletion_key_presses: number; // Total deletion/backspace key presses
+  total_idle_sec: number; // Total idle time in seconds
+  total_mouse_movement_distance: number; // Total mouse movement distance in pixels
 }
 
 @Schema({ versionKey: false })
@@ -30,16 +31,18 @@ export class Activity extends Document {
 
   @Prop({
     type: {
-      keystrokes: { type: Number, default: 0 },
-      clicks: { type: Number, default: 0 },
-      scrolls: { type: Number, default: 0 },
-      idle_sec: { type: Number, default: 0 },
+      typing_intensity_kpm: { type: Number, default: 0 },
+      mouse_click_rate_cpm: { type: Number, default: 0 },
+      total_deletion_key_presses: { type: Number, default: 0 },
+      total_idle_sec: { type: Number, default: 0 },
+      total_mouse_movement_distance: { type: Number, default: 0 },
     },
     default: {
-      keystrokes: 0,
-      clicks: 0,
-      scrolls: 0,
-      idle_sec: 0,
+      typing_intensity_kpm: 0,
+      mouse_click_rate_cpm: 0,
+      total_deletion_key_presses: 0,
+      total_idle_sec: 0,
+      total_mouse_movement_distance: 0,
     },
     _id: false,
   })

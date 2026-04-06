@@ -198,12 +198,41 @@ export class ActivityService {
     }
 
     // Update project_skills if provided (cumulative skills breakdown)
+    // Desktop only sends updated/changed skills, so we merge them with existing ones
+    // Strategy: fetch current skills, update matching ones, add new ones, preserve untouched
     if (bucket.project_skills && bucket.project_skills.length > 0) {
-      const projectSkills = bucket.project_skills.map((skill) => ({
-        skill_name: skill.skill_name,
-        duration_sec: skill.duration_sec,
-      }));
+      // Fetch existing project to get current skills
+      const project = await this.projectModel.findOne(
+        {
+          user_id: userId,
+          project_name: bucket.project_name,
+        },
+        null,
+        { session },
+      );
 
+      // Start with existing skills or empty array
+      let mergedSkills = project?.project_skills ? [...project.project_skills] : [];
+
+      // Merge new skills: update if exists, add if new
+      for (const newSkill of bucket.project_skills) {
+        const existingIndex = mergedSkills.findIndex(
+          (s) => s.skill_name === newSkill.skill_name,
+        );
+
+        if (existingIndex >= 0) {
+          // Update existing skill duration
+          mergedSkills[existingIndex].duration_sec = newSkill.duration_sec;
+        } else {
+          // Add new skill
+          mergedSkills.push({
+            skill_name: newSkill.skill_name,
+            duration_sec: newSkill.duration_sec,
+          });
+        }
+      }
+
+      // Save merged skills
       await this.projectModel.updateOne(
         {
           user_id: userId,
@@ -211,7 +240,7 @@ export class ActivityService {
         },
         {
           $set: {
-            project_skills: projectSkills,
+            project_skills: mergedSkills,
           },
         },
         { session },
@@ -236,11 +265,11 @@ export class ActivityService {
       }
 
       const $set: Record<string, any> = {
-        // last_synced_at preserves local time string exactly as sent from desktop
         last_synced_at: syncTimestampStr,
       };
 
-      // Languages, apps, context are direct maps
+      // Merge languages, apps, context: desktop only sends updated entries
+      // Field-by-field updates preserve existing values for items not in sync payload
       if (day.languages && Object.keys(day.languages).length > 0) {
         for (const [name, duration] of Object.entries(day.languages)) {
           $set[`languages.${name}`] = duration;
@@ -259,13 +288,26 @@ export class ActivityService {
         }
       }
 
+      // Merge behavior: only update fields that were sent in this sync
+      // Preserves existing behavior values for fields not included in payload
       if (day.behavior) {
-        $set.behavior = {
-          keystrokes: day.behavior.keystrokes,
-          clicks: day.behavior.clicks,
-          scrolls: day.behavior.scrolls,
-          idle_sec: day.behavior.idle_sec,
-        };
+        const behaviorUpdates: Record<string, any> = {};
+        if (day.behavior.typing_intensity_kpm !== undefined) {
+          behaviorUpdates['behavior.typing_intensity_kpm'] = day.behavior.typing_intensity_kpm;
+        }
+        if (day.behavior.mouse_click_rate_cpm !== undefined) {
+          behaviorUpdates['behavior.mouse_click_rate_cpm'] = day.behavior.mouse_click_rate_cpm;
+        }
+        if (day.behavior.total_deletion_key_presses !== undefined) {
+          behaviorUpdates['behavior.total_deletion_key_presses'] = day.behavior.total_deletion_key_presses;
+        }
+        if (day.behavior.total_idle_sec !== undefined) {
+          behaviorUpdates['behavior.total_idle_sec'] = day.behavior.total_idle_sec;
+        }
+        if (day.behavior.total_mouse_movement_distance !== undefined) {
+          behaviorUpdates['behavior.total_mouse_movement_distance'] = day.behavior.total_mouse_movement_distance;
+        }
+        Object.assign($set, behaviorUpdates);
       }
 
       await this.activityModel.findOneAndUpdate(

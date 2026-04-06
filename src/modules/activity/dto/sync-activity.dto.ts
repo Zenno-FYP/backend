@@ -9,17 +9,25 @@ import {
 import { Type } from 'class-transformer';
 
 export class BehaviorDto {
+  @IsOptional()
   @IsNumber()
-  keystrokes: number;
+  typing_intensity_kpm?: number; // Keystrokes per minute
 
+  @IsOptional()
   @IsNumber()
-  clicks: number;
+  mouse_click_rate_cpm?: number; // Mouse clicks per minute
 
+  @IsOptional()
   @IsNumber()
-  scrolls: number;
+  total_deletion_key_presses?: number; // Total deletion/backspace key presses
 
+  @IsOptional()
   @IsNumber()
-  idle_sec: number;
+  total_idle_sec?: number; // Total idle time in seconds
+
+  @IsOptional()
+  @IsNumber()
+  total_mouse_movement_distance?: number; // Total mouse movement distance in pixels
 }
 
 export class DayBucketDto {
