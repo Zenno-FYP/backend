@@ -5,6 +5,10 @@ import { Activity } from '../activity/schemas/activity.schema';
 import { Project } from '../activity/schemas/project.schema';
 import { User } from '../user/schemas/user.schema';
 import { PerformanceMetricsResponseDto, UsageTrendBarDto } from './dto/dashboard-metrics.dto';
+import {
+  PerformanceMetricsDetailResponseDto,
+  DailyBehaviorMetricsDto,
+} from './dto/performance-metrics-detail.dto';
 import { ProjectInsightsResponseDto } from './dto/project-insights.dto';
 
 @Injectable()
@@ -15,24 +19,14 @@ export class DashboardService {
     @InjectModel(User.name) private userModel: Model<User>,
   ) {}
 
-  /**
-   * Get dashboard performance metrics for current 7 days vs previous 7 days
-   * Current Period: [Today] back to [Today - 6 days] (7 days inclusive)
-   * Previous Period: [Today - 7 days] back to [Today - 13 days]
-   */
-  async getPerformanceMetrics(email: string): Promise<PerformanceMetricsResponseDto> {
-    // Verify user exists and get their MongoDB _id
-    const user = await this.userModel.findOne({ email });
-    if (!user) {
-      throw new BadRequestException('User not found');
-    }
-
-    const userId = user._id;
-
-    // Calculate user's local "today" using stored timezone offset
+  private getDateRangeForUser(user: User): {
+    today: Date;
+    currentStart: Date;
+    previousStart: Date;
+    previousEnd: Date;
+  } {
     let today: Date;
     if (user.timezone_offset !== undefined && user.timezone_offset !== null) {
-      // Use stored timezone offset
       const now = new Date();
       const userLocalNow = new Date(now.getTime() + user.timezone_offset * 60 * 60 * 1000);
       today = new Date(
@@ -43,40 +37,33 @@ export class DashboardService {
         ),
       );
     } else {
-      // Fallback to server UTC if no timezone offset stored
       today = new Date();
       today.setUTCHours(0, 0, 0, 0);
     }
-
-    // Current period: Today to Today-6 days (7 days inclusive)
     const currentStart = new Date(today);
     currentStart.setUTCDate(today.getUTCDate() - 6);
-
-    // Previous period: Today-7 days to Today-13 days
     const previousStart = new Date(today);
     previousStart.setUTCDate(today.getUTCDate() - 13);
-
     const previousEnd = new Date(today);
     previousEnd.setUTCDate(today.getUTCDate() - 7);
+    return { today, currentStart, previousStart, previousEnd };
+  }
 
-    // Fetch current and previous period activities
-    const [currentActivities, previousActivities] = await Promise.all([
-      this.activityModel.find({
-        user_id: userId,
-        date: { $gte: currentStart, $lte: today },
-      }),
-      this.activityModel.find({
-        user_id: userId,
-        date: { $gte: previousStart, $lt: previousEnd },
-      }),
-    ]);
-
-    // Calculate metrics for both periods
-    const currentMetrics = this.calculateMetrics(currentActivities);
-    const previousMetrics = this.calculateMetrics(previousActivities);
-
-    // Build performance summary metrics with trends
-    const performanceSummary = {
+  private mapToPerformanceSummary(
+    currentMetrics: {
+      avgTypingIntensity: number;
+      avgMouseClickRate: number;
+      avgCorrections: number;
+      dailyActiveAverage: number;
+    },
+    previousMetrics: {
+      avgTypingIntensity: number;
+      avgMouseClickRate: number;
+      avgCorrections: number;
+      dailyActiveAverage: number;
+    },
+  ) {
+    return {
       avg_typing_intensity: {
         value: Math.round(currentMetrics.avgTypingIntensity * 100) / 100,
         change_percent: this.calculateTrendPercent(
@@ -106,6 +93,37 @@ export class DashboardService {
         ),
       },
     };
+  }
+
+  /**
+   * Get dashboard performance metrics for current 7 days vs previous 7 days
+   * Current Period: [Today] back to [Today - 6 days] (7 days inclusive)
+   * Previous Period: [Today - 7 days] back to [Today - 13 days]
+   */
+  async getPerformanceMetrics(email: string): Promise<PerformanceMetricsResponseDto> {
+    const user = await this.userModel.findOne({ email });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const userId = user._id;
+    const { today, currentStart, previousStart, previousEnd } = this.getDateRangeForUser(user);
+
+    // Fetch current and previous period activities
+    const [currentActivities, previousActivities] = await Promise.all([
+      this.activityModel.find({
+        user_id: userId,
+        date: { $gte: currentStart, $lte: today },
+      }),
+      this.activityModel.find({
+        user_id: userId,
+        date: { $gte: previousStart, $lt: previousEnd },
+      }),
+    ]);
+
+    const currentMetrics = this.calculateMetrics(currentActivities);
+    const previousMetrics = this.calculateMetrics(previousActivities);
+    const performanceSummary = this.mapToPerformanceSummary(currentMetrics, previousMetrics);
 
     // Generate usage trend graph (7 days)
     const usageTrendGraph = this.generateUsageTrend(currentActivities, currentStart);
@@ -114,6 +132,41 @@ export class DashboardService {
       period: 'last_7_days',
       performance_summary: performanceSummary,
       usage_trend_graph: usageTrendGraph,
+    };
+  }
+
+  /**
+   * Performance metrics detail: same summary as the dashboard home, plus per-day behavior from activities.
+   */
+  async getPerformanceMetricsDetail(email: string): Promise<PerformanceMetricsDetailResponseDto> {
+    const user = await this.userModel.findOne({ email });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const userId = user._id;
+    const { today, currentStart, previousStart, previousEnd } = this.getDateRangeForUser(user);
+
+    const [currentActivities, previousActivities] = await Promise.all([
+      this.activityModel.find({
+        user_id: userId,
+        date: { $gte: currentStart, $lte: today },
+      }),
+      this.activityModel.find({
+        user_id: userId,
+        date: { $gte: previousStart, $lt: previousEnd },
+      }),
+    ]);
+
+    const currentMetrics = this.calculateMetrics(currentActivities);
+    const previousMetrics = this.calculateMetrics(previousActivities);
+    const performanceSummary = this.mapToPerformanceSummary(currentMetrics, previousMetrics);
+    const dailySeries = this.generateDailyBehaviorSeries(currentActivities, currentStart);
+
+    return {
+      period: 'last_7_days',
+      performance_summary: performanceSummary,
+      daily_series: dailySeries,
     };
   }
 
@@ -241,6 +294,102 @@ export class DashboardService {
         research_hours: Math.round(research * 100) / 100,
         communication_hours: Math.round(communication * 100) / 100,
         distracted_hours: Math.round(distracted * 100) / 100,
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Per-calendar-day aggregates of behavior fields (all projects combined).
+   */
+  private generateDailyBehaviorSeries(
+    activities: Activity[],
+    startDate: Date,
+  ): DailyBehaviorMetricsDto[] {
+    const dayMap = new Map<string, Activity[]>();
+    for (const activity of activities) {
+      const dateStr = activity.date.toISOString().split('T')[0];
+      if (!dayMap.has(dateStr)) {
+        dayMap.set(dateStr, []);
+      }
+      dayMap.get(dateStr)!.push(activity);
+    }
+
+    const result: DailyBehaviorMetricsDto[] = [];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(startDate);
+      date.setUTCDate(startDate.getUTCDate() + i);
+      const dateStr = date.toISOString().split('T')[0];
+      const dayActivities = dayMap.get(dateStr) || [];
+
+      if (dayActivities.length === 0) {
+        result.push({
+          date: dateStr,
+          day_name: dayNames[date.getUTCDay()],
+          typing_intensity_kpm: 0,
+          mouse_click_rate_cpm: 0,
+          correction_rate_percent: 0,
+          active_hours: 0,
+          idle_hours: 0,
+          total_deletion_key_presses: 0,
+          total_mouse_movement_distance: 0,
+        });
+        continue;
+      }
+
+      let sumKpm = 0;
+      let sumCpm = 0;
+      let totalIdleSec = 0;
+      let totalDel = 0;
+      let totalMouse = 0;
+      let totalCtxSec = 0;
+      let totalEstKs = 0;
+
+      for (const act of dayActivities) {
+        const kpm = act.behavior?.typing_intensity_kpm || 0;
+        const cpm = act.behavior?.mouse_click_rate_cpm || 0;
+        sumKpm += kpm;
+        sumCpm += cpm;
+        totalIdleSec += act.behavior?.total_idle_sec || 0;
+        totalDel += act.behavior?.total_deletion_key_presses || 0;
+        totalMouse += act.behavior?.total_mouse_movement_distance || 0;
+
+        let activityDurationSeconds = 0;
+        if (act.context) {
+          const vals =
+            act.context instanceof Map
+              ? Array.from(act.context.values())
+              : Object.values(act.context);
+          for (const duration of vals) {
+            activityDurationSeconds += (duration as number) || 0;
+          }
+        }
+        totalCtxSec += activityDurationSeconds;
+        const activityDurationMinutes = activityDurationSeconds / 60;
+        totalEstKs += kpm * activityDurationMinutes;
+      }
+
+      const n = dayActivities.length;
+      const avgKpm = Math.round((sumKpm / n) * 100) / 100;
+      const avgCpm = Math.round((sumCpm / n) * 100) / 100;
+      const correction =
+        totalEstKs > 0 ? Math.round((totalDel / totalEstKs) * 1000) / 10 : 0;
+      const activeHours = Math.round((totalCtxSec / 3600) * 100) / 100;
+      const idleHours = Math.round((totalIdleSec / 3600) * 100) / 100;
+
+      result.push({
+        date: dateStr,
+        day_name: dayNames[date.getUTCDay()],
+        typing_intensity_kpm: avgKpm,
+        mouse_click_rate_cpm: avgCpm,
+        correction_rate_percent: correction,
+        active_hours: activeHours,
+        idle_hours: idleHours,
+        total_deletion_key_presses: totalDel,
+        total_mouse_movement_distance: Math.round(totalMouse * 100) / 100,
       });
     }
 
