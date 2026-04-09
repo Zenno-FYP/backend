@@ -5,6 +5,7 @@ import { ToolUsageService } from './tool-usage.service';
 import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
 import { PerformanceMetricsResponseDto } from './dto/dashboard-metrics.dto';
 import { ToolUsageResponseDto } from './dto/tool-usage.dto';
+import { ToolUsageDetailResponseDto } from './dto/tool-usage-detail.dto';
 import { ProjectInsightsResponseDto } from './dto/project-insights.dto';
 import { PerformanceMetricsDetailResponseDto } from './dto/performance-metrics-detail.dto';
 
@@ -58,6 +59,19 @@ export class DashboardController {
   @ApiResponse({ status: 404, description: 'User not found' })
   async getToolUsage(@Request() req: any): Promise<ToolUsageResponseDto> {
     return this.toolUsageService.getToolUsage(req.user.email);
+  }
+
+  @Get('tool-usage-detail')
+  @ApiOperation({
+    summary: 'Apps & languages analytics (detail)',
+    description:
+      'Last 7 days: top apps (up to 10) with change vs prior week, per-day total app hours, unique app count, and language distribution (up to 15) from project lines of code.',
+  })
+  @ApiResponse({ status: 200, description: 'Tool usage detail retrieved successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Invalid firebase token' })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  async getToolUsageDetail(@Request() req: any): Promise<ToolUsageDetailResponseDto> {
+    return this.toolUsageService.getToolUsageDetail(req.user.email);
   }
 
   @Get('project-insights')
