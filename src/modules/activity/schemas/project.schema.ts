@@ -26,6 +26,14 @@ export class Project extends Document {
   @Prop({ type: String, default: null })
   last_active_at?: string; // ISO 8601 local timestamp
 
+  /** Optional display name in the app (canonical project_name stays for sync & URLs). */
+  @Prop({ type: String, default: null })
+  display_name?: string | null;
+
+  /** User-editable short description (dashboard only). */
+  @Prop({ type: String, default: '' })
+  description?: string;
+
   @Prop({
     type: [
       {

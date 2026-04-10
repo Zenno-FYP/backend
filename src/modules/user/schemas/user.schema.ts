@@ -9,8 +9,8 @@ export class User extends Document {
   @Prop({ required: true, trim: true })
   name: string;
 
-  @Prop()
-  profilePhoto?: string;
+  @Prop({ type: String, default: null })
+  profilePhoto?: string | null;
 
   @Prop({ default: false })
   isVerified: boolean;
@@ -23,6 +23,43 @@ export class User extends Document {
 
   @Prop({ type: Number, default: 0 })
   timezone_offset?: number; // Hours offset from UTC (e.g., +5 for UTC+5)
+
+  /** Dashboard profile bio */
+  @Prop({ type: String, default: '' })
+  description?: string;
+
+  @Prop({ type: String, default: null })
+  github_url?: string | null;
+
+  @Prop({ type: String, default: null })
+  linkedin_url?: string | null;
+
+  @Prop({ type: String, default: null })
+  twitter_url?: string | null;
+
+  @Prop({
+    type: {
+      hidden_project_names: { type: [String], default: [] },
+      project_order: { type: [String], default: [] },
+      hidden_skill_names: { type: [String], default: [] },
+      hidden_app_names: { type: [String], default: [] },
+      hidden_language_names: { type: [String], default: [] },
+    },
+    default: () => ({
+      hidden_project_names: [],
+      project_order: [],
+      hidden_skill_names: [],
+      hidden_app_names: [],
+      hidden_language_names: [],
+    }),
+  })
+  profile_preferences?: {
+    hidden_project_names: string[];
+    project_order: string[];
+    hidden_skill_names: string[];
+    hidden_app_names: string[];
+    hidden_language_names: string[];
+  };
 
   createdAt?: Date;
   updatedAt?: Date;

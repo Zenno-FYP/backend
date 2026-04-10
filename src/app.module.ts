@@ -5,6 +5,7 @@ import { UserModule } from './modules/user/user.module';
 import { FirebaseModule } from './firebase/firebase.module';
 import { ActivityModule } from './modules/activity/activity.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { ChatModule } from './modules/chat/chat.module';
 
 const logger = new Logger('AppModule');
 
@@ -29,6 +30,7 @@ const logger = new Logger('AppModule');
     UserModule,
     ActivityModule,
     DashboardModule,
+    ChatModule,
   ],
 })
 export class AppModule {}

@@ -37,6 +37,7 @@ export class ActivityController {
         value: {
           user_id: '69a42556794075b5083150b0',
           sync_timestamp: '2026-03-01T14:30:45',
+          timezone_offset_minutes: 330,
           data: [
             {
               project_name: 'desktop-agent',

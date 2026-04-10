@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class SkillDto {
   @ApiProperty({
@@ -17,9 +17,15 @@ export class SkillDto {
 export class ProjectItemDto {
   @ApiProperty({
     example: 'Zenno-Dashboard',
-    description: 'Project name',
+    description: 'Canonical project name (sync key)',
   })
   name: string;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Friendly display label when set; UI should fall back to name',
+  })
+  display_name: string | null;
 
   @ApiProperty({
     example: '2026-03-05T18:30:00',
