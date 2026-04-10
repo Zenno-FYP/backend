@@ -10,6 +10,7 @@ import { ProjectInsightsResponseDto } from './dto/project-insights.dto';
 import { PerformanceMetricsDetailResponseDto } from './dto/performance-metrics-detail.dto';
 import { SkillsProjectsDetailResponseDto } from './dto/skills-projects-detail.dto';
 import { ProjectDetailResponseDto, UpdateProjectDto } from './dto/project-detail.dto';
+import { ProfilePageResponseDto } from './dto/profile-page.dto';
 
 @ApiTags('Dashboard')
 @Controller('api/v1/dashboard')
@@ -102,6 +103,19 @@ export class DashboardController {
   @ApiResponse({ status: 404, description: 'User not found' })
   async getSkillsProjectsDetail(@Request() req: any): Promise<SkillsProjectsDetailResponseDto> {
     return this.dashboardService.getSkillsProjectsDetail(req.user.email);
+  }
+
+  @Get('profile-page')
+  @ApiOperation({
+    summary: 'Profile page analytics',
+    description:
+      'Streak (days with activity), global top skills/apps/languages, and per-project summaries for the profile UI.',
+  })
+  @ApiResponse({ status: 200, description: 'Profile page data retrieved' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  async getProfilePage(@Request() req: any): Promise<ProfilePageResponseDto> {
+    return this.dashboardService.getProfilePage(req.user.email);
   }
 
   @Get('projects/:projectName')

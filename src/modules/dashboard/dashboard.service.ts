@@ -12,6 +12,7 @@ import {
 import { ProjectInsightsResponseDto } from './dto/project-insights.dto';
 import { SkillsProjectsDetailResponseDto } from './dto/skills-projects-detail.dto';
 import { ProjectDetailResponseDto, UpdateProjectDto } from './dto/project-detail.dto';
+import { ProfilePageResponseDto, ProfileProjectInsightDto } from './dto/profile-page.dto';
 
 @Injectable()
 export class DashboardService {
@@ -445,6 +446,265 @@ export class DashboardService {
     }
 
     return { flow, debugging, research, communication, distracted };
+  }
+
+  /** UTC calendar day key, consistent with usage trend grouping. */
+  private activityDayKey(date: Date): string {
+    return date.toISOString().split('T')[0];
+  }
+
+  private prevUtcDayKey(ymd: string): string {
+    const d = new Date(`${ymd}T12:00:00.000Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().split('T')[0];
+  }
+
+  /**
+   * Days in a row ending at today or yesterday (if today has no sync yet) with ≥1 activity document.
+   */
+  private computeActivityStreak(activities: Activity[]): number {
+    const days = new Set<string>();
+    for (const a of activities) {
+      if (a.date) {
+        days.add(this.activityDayKey(a.date as Date));
+      }
+    }
+    if (days.size === 0) {
+      return 0;
+    }
+    const todayStr = this.activityDayKey(new Date());
+    let cursor = todayStr;
+    if (!days.has(cursor)) {
+      cursor = this.prevUtcDayKey(todayStr);
+    }
+    let streak = 0;
+    while (days.has(cursor)) {
+      streak += 1;
+      cursor = this.prevUtcDayKey(cursor);
+    }
+    return streak;
+  }
+
+  private aggregateGlobalAppSeconds(activities: Activity[]): Map<string, number> {
+    const map = new Map<string, number>();
+    for (const activity of activities) {
+      if (!activity.apps) {
+        continue;
+      }
+      const apps =
+        activity.apps instanceof Map ? activity.apps : new Map(Object.entries(activity.apps || {}));
+      for (const [name, sec] of apps) {
+        const key = (name || '').trim() || 'Unknown';
+        map.set(key, (map.get(key) || 0) + this.coerceSeconds(sec));
+      }
+    }
+    return map;
+  }
+
+  private buildProjectProfileInsight(activities: Activity[]): ProfileProjectInsightDto {
+    const cb = this.projectContextBreakdownHours(activities);
+    const parts: { label: string; h: number }[] = [
+      { label: 'Flow', h: cb.flow_hours },
+      { label: 'Debugging', h: cb.debugging_hours },
+      { label: 'Research', h: cb.research_hours },
+      { label: 'Communication', h: cb.communication_hours },
+      { label: 'Distracted', h: cb.distracted_hours },
+      { label: 'Other', h: cb.other_hours },
+    ];
+    const total = parts.reduce((s, p) => s + p.h, 0);
+    if (total < 0.05) {
+      return { kind: 'none' };
+    }
+    const flowRatio = cb.flow_hours / total;
+    if (total >= 0.25) {
+      return {
+        kind: 'flow_focus',
+        flow_focus_percent: Math.round((flowRatio * 100 + Number.EPSILON) * 10) / 10,
+      };
+    }
+    const top = parts.reduce((a, b) => (b.h > a.h ? b : a));
+    return {
+      kind: 'dominant_context',
+      label: top.label,
+      percent: Math.round(((top.h / total) * 100 + Number.EPSILON) * 10) / 10,
+    };
+  }
+
+  /**
+   * Profile dashboard payload: streak, global top lists, per-project cards.
+   */
+  async getProfilePage(email: string): Promise<ProfilePageResponseDto> {
+    const user = await this.userModel.findOne({ email });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+    const userId = user._id;
+
+    const [projects, activities] = await Promise.all([
+      this.projectModel.find({ user_id: userId }),
+      this.activityModel.find({ user_id: userId }),
+    ]);
+
+    const streak = this.computeActivityStreak(activities);
+    const appSecByProject = this.aggregateAppSecondsByProject(activities);
+    const totalAppSec = Array.from(appSecByProject.values()).reduce((a, b) => a + b, 0);
+
+    const globalAppsMap = this.aggregateGlobalAppSeconds(activities);
+    const totalGlobalAppSec = Array.from(globalAppsMap.values()).reduce((a, b) => a + b, 0);
+    const top_apps_global = this.rowsFromSecondsMap(globalAppsMap, totalGlobalAppSec, 8);
+
+    const skillMap = new Map<string, number>();
+    for (const project of projects) {
+      if (project.project_skills && Array.isArray(project.project_skills)) {
+        for (const skill of project.project_skills) {
+          const n = (skill.skill_name || '').trim();
+          if (!n) {
+            continue;
+          }
+          skillMap.set(n, (skillMap.get(n) || 0) + this.coerceSeconds(skill.duration_sec));
+        }
+      }
+    }
+    const totalSkillSec = Array.from(skillMap.values()).reduce((a, b) => a + b, 0);
+    const top_skills_global = Array.from(skillMap.entries())
+      .filter(([, sec]) => sec > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([name, sec]) => ({
+        name,
+        duration_hours: Math.round((sec / 3600) * 100) / 100,
+        percent:
+          totalSkillSec > 0
+            ? Math.round(((sec / totalSkillSec) * 100 + Number.EPSILON) * 10) / 10
+            : 0,
+      }));
+
+    const langLines = new Map<string, number>();
+    let totalLinesAll = 0;
+    for (const p of projects) {
+      for (const loc of p.current_loc || []) {
+        const lang = loc.language || 'Unknown';
+        const lines = loc.lines || 0;
+        langLines.set(lang, (langLines.get(lang) || 0) + lines);
+        totalLinesAll += lines;
+      }
+    }
+    const top_languages_global = Array.from(langLines.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([name, lines]) => ({
+        name,
+        lines,
+        percent:
+          totalLinesAll > 0
+            ? Math.round(((lines / totalLinesAll) * 100 + Number.EPSILON) * 10) / 10
+            : 0,
+      }));
+
+    const cat = this.categorizeActivities(activities);
+    const ctxHours = cat.flow + cat.debugging + cat.research + cat.communication + cat.distracted;
+    const global_flow_focus_percent =
+      ctxHours >= 0.25
+        ? Math.round(((cat.flow / ctxHours) * 100 + Number.EPSILON) * 10) / 10
+        : null;
+
+    const actsByProject = new Map<string, Activity[]>();
+    for (const a of activities) {
+      const pn = a.project_name;
+      if (!actsByProject.has(pn)) {
+        actsByProject.set(pn, []);
+      }
+      actsByProject.get(pn)!.push(a);
+    }
+
+    const projectCards = projects.map((p) => {
+      const pn = p.project_name;
+      const projActs = actsByProject.get(pn) || [];
+      const appSec = appSecByProject.get(pn) || 0;
+
+      const appMap = new Map<string, number>();
+      for (const act of projActs) {
+        if (!act.apps) {
+          continue;
+        }
+        const apps =
+          act.apps instanceof Map ? act.apps : new Map(Object.entries(act.apps || {}));
+        for (const [name, sec] of apps) {
+          const key = (name || '').trim() || 'Unknown';
+          appMap.set(key, (appMap.get(key) || 0) + this.coerceSeconds(sec));
+        }
+      }
+      const totalPApp = Array.from(appMap.values()).reduce((a, b) => a + b, 0);
+      const top_apps_p = this.rowsFromSecondsMap(appMap, totalPApp, 4);
+
+      const skillRowsFull = this.buildProjectSkillRows(p.project_skills);
+      const totalSkillProj = skillRowsFull.reduce((s, r) => s + r.duration_sec, 0);
+      const top_skills_p = skillRowsFull.slice(0, 4).map((r) => ({
+        name: r.name,
+        duration_sec: r.duration_sec,
+        duration_hours: Math.round(r.duration_hours * 100) / 100,
+        percent:
+          totalSkillProj > 0
+            ? Math.round(((r.duration_sec / totalSkillProj) * 100 + Number.EPSILON) * 10) / 10
+            : 0,
+      }));
+
+      let totalPLines = 0;
+      const langMap = new Map<string, number>();
+      for (const loc of p.current_loc || []) {
+        totalPLines += loc.lines || 0;
+        const lang = loc.language || 'Unknown';
+        langMap.set(lang, (langMap.get(lang) || 0) + (loc.lines || 0));
+      }
+      const languages = Array.from(langMap.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, lines]) => ({
+          name,
+          percent:
+            totalPLines > 0
+              ? Math.round(((lines / totalPLines) * 100 + Number.EPSILON) * 10) / 10
+              : 0,
+        }));
+
+      const insight = this.buildProjectProfileInsight(projActs);
+
+      return {
+        project_name: pn,
+        display_name: p.display_name ?? null,
+        description: p.description ?? '',
+        last_active: p.last_active_at ?? null,
+        app_time_hours: Math.round((appSec / 3600) * 100) / 100,
+        languages,
+        top_apps: top_apps_p,
+        top_skills: top_skills_p,
+        insight,
+      };
+    });
+
+    projectCards.sort((a, b) => {
+      if (!a.last_active && !b.last_active) {
+        return a.project_name.localeCompare(b.project_name);
+      }
+      if (!a.last_active) {
+        return 1;
+      }
+      if (!b.last_active) {
+        return -1;
+      }
+      return new Date(b.last_active).getTime() - new Date(a.last_active).getTime();
+    });
+
+    return {
+      streak_days: streak,
+      total_app_time_hours: Math.round((totalAppSec / 3600) * 100) / 100,
+      total_projects: projects.length,
+      global_flow_focus_percent,
+      top_skills: top_skills_global,
+      top_apps: top_apps_global,
+      top_languages: top_languages_global,
+      projects: projectCards,
+    };
   }
 
   /**
