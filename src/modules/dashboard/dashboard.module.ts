@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { DashboardService } from './dashboard.service';
 import { ToolUsageService } from './tool-usage.service';
+import { PeersService } from './peers.service';
 import { DashboardController } from './dashboard.controller';
 import { Activity, ActivitySchema } from '../activity/schemas/activity.schema';
 import { Project, ProjectSchema } from '../activity/schemas/project.schema';
@@ -18,7 +19,7 @@ import { FirebaseModule } from '../../firebase/firebase.module';
     FirebaseModule,
   ],
   controllers: [DashboardController],
-  providers: [DashboardService, ToolUsageService],
-  exports: [DashboardService, ToolUsageService],
+  providers: [DashboardService, ToolUsageService, PeersService],
+  exports: [DashboardService, ToolUsageService, PeersService],
 })
 export class DashboardModule {}

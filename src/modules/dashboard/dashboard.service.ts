@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { PublicProfileResponseDto } from './dto/public-profile.dto';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Activity } from '../activity/schemas/activity.schema';
@@ -530,28 +531,36 @@ export class DashboardService {
     };
   }
 
-  /**
-   * Profile dashboard payload: streak, global top lists, per-project cards.
-   */
-  async getProfilePage(email: string): Promise<ProfilePageResponseDto> {
-    const user = await this.userModel.findOne({ email });
-    if (!user) {
-      throw new BadRequestException('User not found');
+  private static readonly PROFILE_GLOBAL_LIST_LIMIT = 8;
+  /** Matches website ProfilePage MAX_GLOBAL_VISIBLE for public view. */
+  private static readonly PUBLIC_PROFILE_GLOBAL_VISIBLE = 6;
+
+  private mergeProjectOrderForProfile(savedOrder: string[], projectNames: string[]): string[] {
+    const set = new Set(projectNames);
+    const ordered = savedOrder.filter((n) => set.has(n));
+    for (const n of projectNames) {
+      if (!ordered.includes(n)) {
+        ordered.push(n);
+      }
     }
-    const userId = user._id;
+    return ordered;
+  }
 
-    const [projects, activities] = await Promise.all([
-      this.projectModel.find({ user_id: userId }),
-      this.activityModel.find({ user_id: userId }),
-    ]);
-
+  /**
+   * Raw profile analytics (owner sees everything; filtering is client-side or via {@link applyOwnerPreferencesToProfilePage}).
+   */
+  private computeProfilePage(projects: Project[], activities: Activity[]): ProfilePageResponseDto {
     const streak = this.computeActivityStreak(activities);
     const appSecByProject = this.aggregateAppSecondsByProject(activities);
     const totalAppSec = Array.from(appSecByProject.values()).reduce((a, b) => a + b, 0);
 
     const globalAppsMap = this.aggregateGlobalAppSeconds(activities);
     const totalGlobalAppSec = Array.from(globalAppsMap.values()).reduce((a, b) => a + b, 0);
-    const top_apps_global = this.rowsFromSecondsMap(globalAppsMap, totalGlobalAppSec, 8);
+    const top_apps_global = this.rowsFromSecondsMap(
+      globalAppsMap,
+      totalGlobalAppSec,
+      DashboardService.PROFILE_GLOBAL_LIST_LIMIT,
+    );
 
     const skillMap = new Map<string, number>();
     for (const project of projects) {
@@ -569,7 +578,7 @@ export class DashboardService {
     const top_skills_global = Array.from(skillMap.entries())
       .filter(([, sec]) => sec > 0)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
+      .slice(0, DashboardService.PROFILE_GLOBAL_LIST_LIMIT)
       .map(([name, sec]) => ({
         name,
         duration_hours: Math.round((sec / 3600) * 100) / 100,
@@ -591,7 +600,7 @@ export class DashboardService {
     }
     const top_languages_global = Array.from(langLines.entries())
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
+      .slice(0, DashboardService.PROFILE_GLOBAL_LIST_LIMIT)
       .map(([name, lines]) => ({
         name,
         lines,
@@ -704,6 +713,115 @@ export class DashboardService {
       top_apps: top_apps_global,
       top_languages: top_languages_global,
       projects: projectCards,
+    };
+  }
+
+  /**
+   * Profile shown to other users: same analytics shape as the owner, filtered by the owner's profile_preferences.
+   */
+  private applyOwnerPreferencesToProfilePage(
+    page: ProfilePageResponseDto,
+    prefs: User['profile_preferences'] | undefined,
+    allActivities: Activity[],
+  ): ProfilePageResponseDto {
+    const p = prefs ?? {
+      hidden_project_names: [],
+      project_order: [],
+      hidden_skill_names: [],
+      hidden_app_names: [],
+      hidden_language_names: [],
+    };
+    const hiddenP = new Set(p.hidden_project_names ?? []);
+    const hiddenS = new Set(p.hidden_skill_names ?? []);
+    const hiddenA = new Set(p.hidden_app_names ?? []);
+    const hiddenL = new Set(p.hidden_language_names ?? []);
+
+    const fullOrder = this.mergeProjectOrderForProfile(
+      p.project_order ?? [],
+      page.projects.map((c) => c.project_name),
+    );
+    const cardByName = new Map(page.projects.map((c) => [c.project_name, c]));
+    const orderedVisible = fullOrder
+      .filter((pn) => !hiddenP.has(pn))
+      .map((pn) => cardByName.get(pn))
+      .filter((c): c is NonNullable<typeof c> => Boolean(c));
+
+    const visibleNames = new Set(orderedVisible.map((c) => c.project_name));
+    const filteredActs = allActivities.filter((a) => visibleNames.has(a.project_name));
+
+    const streak = this.computeActivityStreak(filteredActs);
+    const cat = this.categorizeActivities(filteredActs);
+    const ctxHours = cat.flow + cat.debugging + cat.research + cat.communication + cat.distracted;
+    const global_flow_focus_percent =
+      ctxHours >= 0.25
+        ? Math.round(((cat.flow / ctxHours) * 100 + Number.EPSILON) * 10) / 10
+        : null;
+
+    const totalAppHours = orderedVisible.reduce((s, c) => s + c.app_time_hours, 0);
+
+    const lim = DashboardService.PUBLIC_PROFILE_GLOBAL_VISIBLE;
+    const top_skills = page.top_skills.filter((s) => !hiddenS.has(s.name)).slice(0, lim);
+    const top_apps = page.top_apps.filter((a) => !hiddenA.has(a.name)).slice(0, lim);
+    const top_languages = page.top_languages.filter((l) => !hiddenL.has(l.name)).slice(0, lim);
+
+    return {
+      ...page,
+      streak_days: streak,
+      total_projects: orderedVisible.length,
+      total_app_time_hours: Math.round(totalAppHours * 100) / 100,
+      global_flow_focus_percent,
+      top_skills,
+      top_apps,
+      top_languages,
+      projects: orderedVisible,
+    };
+  }
+
+  /**
+   * Profile dashboard payload: streak, global top lists, per-project cards.
+   */
+  async getProfilePage(email: string): Promise<ProfilePageResponseDto> {
+    const user = await this.userModel.findOne({ email });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+    const [projects, activities] = await Promise.all([
+      this.projectModel.find({ user_id: user._id }),
+      this.activityModel.find({ user_id: user._id }),
+    ]);
+    return this.computeProfilePage(projects, activities);
+  }
+
+  async getPublicProfileByUserId(viewerEmail: string, targetUserId: string): Promise<PublicProfileResponseDto> {
+    if (!Types.ObjectId.isValid(targetUserId)) {
+      throw new BadRequestException('Invalid user id');
+    }
+    const viewer = await this.userModel.findOne({ email: viewerEmail });
+    if (!viewer) {
+      throw new BadRequestException('User not found');
+    }
+    const target = await this.userModel.findById(targetUserId);
+    if (!target) {
+      throw new NotFoundException('Profile not found');
+    }
+    const [projects, activities] = await Promise.all([
+      this.projectModel.find({ user_id: target._id }),
+      this.activityModel.find({ user_id: target._id }),
+    ]);
+    const raw = this.computeProfilePage(projects, activities);
+    const profile = this.applyOwnerPreferencesToProfilePage(raw, target.profile_preferences, activities);
+    const created = target.createdAt;
+    return {
+      user: {
+        name: target.name,
+        profilePhoto: target.profilePhoto ?? null,
+        description: target.description ?? '',
+        github_url: target.github_url ?? null,
+        linkedin_url: target.linkedin_url ?? null,
+        twitter_url: target.twitter_url ?? null,
+        createdAt: created instanceof Date ? created.toISOString() : created ? String(created) : null,
+      },
+      profile,
     };
   }
 

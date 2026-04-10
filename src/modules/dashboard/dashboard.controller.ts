@@ -1,7 +1,8 @@
-import { Controller, Get, Patch, Delete, Body, Param, UseGuards, Request, HttpCode } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Body, Param, Query, UseGuards, Request, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { ToolUsageService } from './tool-usage.service';
+import { PeersService } from './peers.service';
 import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
 import { PerformanceMetricsResponseDto } from './dto/dashboard-metrics.dto';
 import { ToolUsageResponseDto } from './dto/tool-usage.dto';
@@ -11,6 +12,8 @@ import { PerformanceMetricsDetailResponseDto } from './dto/performance-metrics-d
 import { SkillsProjectsDetailResponseDto } from './dto/skills-projects-detail.dto';
 import { ProjectDetailResponseDto, UpdateProjectDto } from './dto/project-detail.dto';
 import { ProfilePageResponseDto } from './dto/profile-page.dto';
+import { PublicProfileResponseDto } from './dto/public-profile.dto';
+import { PeersSearchResponseDto } from './dto/peers-search.dto';
 
 @ApiTags('Dashboard')
 @Controller('api/v1/dashboard')
@@ -20,6 +23,7 @@ export class DashboardController {
   constructor(
     private readonly dashboardService: DashboardService,
     private readonly toolUsageService: ToolUsageService,
+    private readonly peersService: PeersService,
   ) {}
 
   @Get('performance-metrics')
@@ -116,6 +120,36 @@ export class DashboardController {
   @ApiResponse({ status: 404, description: 'User not found' })
   async getProfilePage(@Request() req: any): Promise<ProfilePageResponseDto> {
     return this.dashboardService.getProfilePage(req.user.email);
+  }
+
+  @Get('users/:userId/public-profile')
+  @ApiOperation({
+    summary: 'Public profile view for another user',
+    description:
+      'Same analytics shape as profile-page, filtered by that user’s profile preferences (hidden items, project order). Safe fields only — no email.',
+  })
+  @ApiResponse({ status: 200, description: 'Public profile payload' })
+  @ApiResponse({ status: 400, description: 'Invalid user id' })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getPublicProfile(
+    @Request() req: any,
+    @Param('userId') userId: string,
+  ): Promise<PublicProfileResponseDto> {
+    return this.dashboardService.getPublicProfileByUserId(req.user.email, userId);
+  }
+
+  @Get('peers/search')
+  @ApiOperation({
+    summary: 'Search other developers',
+    description:
+      'Returns public-style cards for other users (excludes you). Optional q: substring search on name, bio, skills, project names, and app names; multiple words all must match.',
+  })
+  @ApiResponse({ status: 200, description: 'Peer list' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async searchPeers(@Request() req: any, @Query('q') q?: string): Promise<PeersSearchResponseDto> {
+    const peers = await this.peersService.searchPeers(req.user.email, q ?? '');
+    return { peers };
   }
 
   @Get('projects/:projectName')
