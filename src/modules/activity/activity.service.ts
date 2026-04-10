@@ -55,13 +55,17 @@ export class ActivityService {
       // Sync project buckets atomically (pass original local time string)
       await this.syncProjectBuckets(userId, syncDto.data, syncDto.sync_timestamp, syncTimestamp, session);
 
-      // Calculate and store timezone offset
-      // sync_timestamp is in local time with microseconds (e.g., "2026-03-04T02:01:41.525702")
-      // Trim to milliseconds (JavaScript doesn't support microseconds) and treat as UTC reference
-      const trimmedTimestamp = syncDto.sync_timestamp.substring(0, 23); // "2026-03-04T02:01:41.525"
-      const userLocalAsUtc = new Date(trimmedTimestamp + 'Z').getTime();
-      const serverUtcNow = Date.now();
-      const offsetHours = Math.round(((userLocalAsUtc - serverUtcNow) / (1000 * 60 * 60)) * 4) / 4; // Round to nearest 15 min
+      // Timezone offset — prefer the explicit field sent by the desktop agent;
+      // fall back to the legacy clock-delta heuristic for older agent versions.
+      let offsetHours: number;
+      if (syncDto.timezone_offset_minutes != null && Number.isFinite(syncDto.timezone_offset_minutes)) {
+        offsetHours = syncDto.timezone_offset_minutes / 60;
+      } else {
+        const trimmedTimestamp = syncDto.sync_timestamp.substring(0, 23);
+        const userLocalAsUtc = new Date(trimmedTimestamp + 'Z').getTime();
+        const serverUtcNow = Date.now();
+        offsetHours = Math.round(((userLocalAsUtc - serverUtcNow) / (1000 * 60 * 60)) * 4) / 4;
+      }
 
       // Update user's activity_sync_at timestamp and timezone offset within the transaction
       await this.userModel.updateOne(

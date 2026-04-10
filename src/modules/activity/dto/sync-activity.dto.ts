@@ -115,6 +115,10 @@ export class SyncActivityDto {
   @IsString()
   sync_timestamp: string; // ISO 8601
 
+  @IsOptional()
+  @IsNumber()
+  timezone_offset_minutes?: number; // UTC offset in minutes (e.g. 330 for IST, -300 for EST)
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ProjectSyncDto)

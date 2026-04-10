@@ -19,9 +19,15 @@ import { MarkReadWsDto, SendMessageWsDto } from './dto/chat-rest.dto';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 
+function parseCorsOrigins(): string[] | true {
+  const raw = process.env.CORS_ORIGINS;
+  if (!raw || raw === '*') return true;
+  return raw.split(',').map((o) => o.trim()).filter(Boolean);
+}
+
 @WebSocketGateway({
   namespace: '/chat',
-  cors: { origin: true, credentials: true },
+  cors: { origin: parseCorsOrigins(), credentials: true },
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(ChatGateway.name);
@@ -68,10 +74,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  handleDisconnect(client: Socket) {
+  handleDisconnect(client: Socket, ...args: unknown[]) {
     const id = (client.data as { mongoUserId?: string }).mongoUserId;
     if (id) {
-      this.logger.log(`Chat disconnected user:${id}`);
+      this.logger.log(`Chat disconnected user:${id} reason=${args[0] ?? 'unknown'}`);
     }
   }
 
