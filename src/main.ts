@@ -1,10 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   // Enable global validation pipe
   app.useGlobalPipes(new ValidationPipe());
@@ -19,6 +21,7 @@ async function bootstrap() {
     .setVersion('1.0.0')
     .addBearerAuth()
     .addTag('User', 'User profile endpoints')
+    .addTag('Chat', 'Direct messages (REST + WebSocket /chat)')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
