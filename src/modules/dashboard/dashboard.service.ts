@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Activity } from '../activity/schemas/activity.schema';
@@ -10,6 +10,8 @@ import {
   DailyBehaviorMetricsDto,
 } from './dto/performance-metrics-detail.dto';
 import { ProjectInsightsResponseDto } from './dto/project-insights.dto';
+import { SkillsProjectsDetailResponseDto } from './dto/skills-projects-detail.dto';
+import { ProjectDetailResponseDto, UpdateProjectDto } from './dto/project-detail.dto';
 
 @Injectable()
 export class DashboardService {
@@ -418,7 +420,7 @@ export class DashboardService {
           : Object.entries(activity.context);
 
         for (const [contextType, duration] of contextEntries) {
-          const hours = ((duration as number) || 0) / 3600;
+          const hours = this.coerceSeconds(duration) / 3600;
           const normalizedType = contextType.toUpperCase();
 
           switch (normalizedType) {
@@ -499,5 +501,445 @@ export class DashboardService {
       strongest_skills: strongestSkills,
       current_projects: currentProjects,
     };
+  }
+
+  /** Normalize duration values from Mongo / sync (handles Decimal128-like objects). */
+  private coerceSeconds(value: unknown): number {
+    if (value == null || value === '') {
+      return 0;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'object' && value !== null && 'toString' in value) {
+      const n = Number(String(value));
+      return Number.isFinite(n) ? n : 0;
+    }
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  /**
+   * Sum activity.apps durations (seconds) per project_name.
+   */
+  private aggregateAppSecondsByProject(activities: Activity[]): Map<string, number> {
+    const map = new Map<string, number>();
+    for (const activity of activities) {
+      if (!activity.apps) {
+        continue;
+      }
+      const pn = activity.project_name;
+      const apps =
+        activity.apps instanceof Map ? activity.apps : new Map(Object.entries(activity.apps || {}));
+      let daySec = 0;
+      for (const [, sec] of apps) {
+        daySec += this.coerceSeconds(sec);
+      }
+      map.set(pn, (map.get(pn) || 0) + daySec);
+    }
+    return map;
+  }
+
+  /**
+   * Sorted rows (hours + percent of totalSec) from per-label second totals.
+   */
+  private rowsFromSecondsMap(
+    totals: Map<string, number>,
+    totalSec: number,
+    limit: number,
+  ): { name: string; duration_hours: number; percent: number }[] {
+    if (totalSec <= 0) {
+      return [];
+    }
+    return Array.from(totals.entries())
+      .filter(([, sec]) => this.coerceSeconds(sec) > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([name, sec]) => {
+        const s = this.coerceSeconds(sec);
+        return {
+          name,
+          duration_hours: Math.round((s / 3600) * 100) / 100,
+          percent:
+            Math.round(((s / totalSec) * 100 + Number.EPSILON) * 10) / 10,
+        };
+      });
+  }
+
+  private projectContextBreakdownHours(activities: Activity[]): {
+    flow_hours: number;
+    debugging_hours: number;
+    research_hours: number;
+    communication_hours: number;
+    distracted_hours: number;
+    other_hours: number;
+  } {
+    const c = this.categorizeActivities(activities);
+    let totalContextSec = 0;
+    for (const act of activities) {
+      if (!act.context) {
+        continue;
+      }
+      const vals =
+        act.context instanceof Map
+          ? Array.from(act.context.values())
+          : Object.values(act.context);
+      for (const dur of vals) {
+        totalContextSec += this.coerceSeconds(dur);
+      }
+    }
+    const knownHours = c.flow + c.debugging + c.research + c.communication + c.distracted;
+    const knownSec = knownHours * 3600;
+    const otherSec = Math.max(0, totalContextSec - knownSec);
+    const r = (n: number) => Math.round(n * 100) / 100;
+
+    return {
+      flow_hours: r(c.flow),
+      debugging_hours: r(c.debugging),
+      research_hours: r(c.research),
+      communication_hours: r(c.communication),
+      distracted_hours: r(c.distracted),
+      other_hours: r(otherSec / 3600),
+    };
+  }
+
+  /**
+   * Merge project_skills by trimmed name (avoids duplicates / casing drift) and keep any skill with > 0 sec.
+   */
+  private buildProjectSkillRows(
+    projectSkills: { skill_name?: string; duration_sec?: number }[] | undefined,
+  ): { name: string; duration_sec: number; duration_hours: number }[] {
+    const merged = new Map<string, number>();
+    for (const s of projectSkills || []) {
+      const name = (s.skill_name || '').trim();
+      if (!name) {
+        continue;
+      }
+      merged.set(name, (merged.get(name) || 0) + this.coerceSeconds(s.duration_sec));
+    }
+    return Array.from(merged.entries())
+      .filter(([, sec]) => sec > 0)
+      .map(([name, duration_sec]) => ({
+        name,
+        duration_sec,
+        duration_hours: Math.round((duration_sec / 3600) * 10000) / 10000,
+      }))
+      .sort((a, b) => b.duration_sec - a.duration_sec);
+  }
+
+  /**
+   * Typing / mouse averages weighted by context duration per day (falls back to equal weight if no context).
+   */
+  private aggregateProjectBehavior(activities: Activity[]): {
+    avg_typing_kpm: number;
+    avg_mouse_cpm: number;
+    total_idle_hours: number;
+  } {
+    let wTyping = 0;
+    let wMouse = 0;
+    let weight = 0;
+    let totalIdleSec = 0;
+
+    for (const act of activities) {
+      totalIdleSec += this.coerceSeconds(act.behavior?.total_idle_sec);
+
+      let dayCtxSec = 0;
+      if (act.context) {
+        const vals =
+          act.context instanceof Map
+            ? Array.from(act.context.values())
+            : Object.values(act.context);
+        for (const d of vals) {
+          dayCtxSec += this.coerceSeconds(d);
+        }
+      }
+      const w = dayCtxSec > 0 ? dayCtxSec : 1;
+      weight += w;
+      wTyping += (act.behavior?.typing_intensity_kpm || 0) * w;
+      wMouse += (act.behavior?.mouse_click_rate_cpm || 0) * w;
+    }
+
+    const r = (n: number) => Math.round(n * 100) / 100;
+    return {
+      avg_typing_kpm: weight > 0 ? r(wTyping / weight) : 0,
+      avg_mouse_cpm: weight > 0 ? r(wMouse / weight) : 0,
+      total_idle_hours: r(totalIdleSec / 3600),
+    };
+  }
+
+  /**
+   * Skills & projects overview: skills from project_skills; app time from activity.apps per project.
+   */
+  async getSkillsProjectsDetail(email: string): Promise<SkillsProjectsDetailResponseDto> {
+    const user = await this.userModel.findOne({ email });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const userId = user._id;
+    const [projects, activities] = await Promise.all([
+      this.projectModel.find({ user_id: userId }),
+      this.activityModel.find({ user_id: userId }),
+    ]);
+
+    const appSecByProject = this.aggregateAppSecondsByProject(activities);
+    const totalAppSec = Array.from(appSecByProject.values()).reduce((a, b) => a + b, 0);
+
+    const skillMap = new Map<string, number>();
+    let totalLinesAll = 0;
+
+    for (const project of projects) {
+      if (project.project_skills && Array.isArray(project.project_skills)) {
+        for (const skill of project.project_skills) {
+          const sec = skill.duration_sec || 0;
+          skillMap.set(skill.skill_name, (skillMap.get(skill.skill_name) || 0) + sec);
+        }
+      }
+      if (project.current_loc && Array.isArray(project.current_loc)) {
+        for (const loc of project.current_loc) {
+          totalLinesAll += loc.lines || 0;
+        }
+      }
+    }
+
+    const totalSkillSec = Array.from(skillMap.values()).reduce((a, b) => a + b, 0);
+
+    const skills = Array.from(skillMap.entries())
+      .map(([name, sec]) => ({
+        name,
+        duration_hours: Math.round((sec / 3600) * 100) / 100,
+        percent_of_total:
+          totalSkillSec > 0
+            ? Math.round(((sec / totalSkillSec) * 100 + Number.EPSILON) * 10) / 10
+            : 0,
+      }))
+      .sort((a, b) => b.duration_hours - a.duration_hours);
+
+    const projectItems = projects
+      .map((p) => {
+        let totalLines = 0;
+        let totalFiles = 0;
+        const langMap = new Map<string, number>();
+        if (p.current_loc && Array.isArray(p.current_loc)) {
+          for (const loc of p.current_loc) {
+            totalLines += loc.lines || 0;
+            totalFiles += loc.files || 0;
+            const lang = loc.language || 'Unknown';
+            langMap.set(lang, (langMap.get(lang) || 0) + (loc.lines || 0));
+          }
+        }
+
+        const topLanguages = Array.from(langMap.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 6)
+          .map(([name, lines]) => ({ name, lines }));
+
+        const projSkills = this.buildProjectSkillRows(p.project_skills).map((row) => ({
+          name: row.name,
+          duration_sec: row.duration_sec,
+          duration_hours: Math.round(row.duration_hours * 100) / 100,
+        }));
+
+        const appSec = appSecByProject.get(p.project_name) || 0;
+
+        return {
+          name: p.project_name,
+          display_name: p.display_name ?? null,
+          description: p.description ?? '',
+          last_active: p.last_active_at ?? null,
+          first_seen: p.first_seen_at ?? null,
+          total_lines: totalLines,
+          total_files: totalFiles,
+          top_languages: topLanguages,
+          skills: projSkills,
+          app_time_hours: Math.round((appSec / 3600) * 100) / 100,
+        };
+      })
+      .sort((a, b) => {
+        if (!a.last_active && !b.last_active) {
+          return a.name.localeCompare(b.name);
+        }
+        if (!a.last_active) {
+          return 1;
+        }
+        if (!b.last_active) {
+          return -1;
+        }
+        return new Date(b.last_active).getTime() - new Date(a.last_active).getTime();
+      });
+
+    return {
+      summary: {
+        total_projects: projects.length,
+        total_app_time_hours: Math.round((totalAppSec / 3600) * 100) / 100,
+        unique_skills_count: skillMap.size,
+        total_lines_of_code: totalLinesAll,
+      },
+      skills,
+      projects: projectItems,
+    };
+  }
+
+  async getProjectDetail(email: string, projectName: string): Promise<ProjectDetailResponseDto> {
+    const user = await this.userModel.findOne({ email });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const project = await this.projectModel.findOne({
+      user_id: user._id,
+      project_name: projectName,
+    });
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    const activities = await this.activityModel.find({
+      user_id: user._id,
+      project_name: projectName,
+    });
+
+    let appSec = 0;
+    const appAgg = new Map<string, number>();
+    let langActSec = 0;
+    const langAgg = new Map<string, number>();
+
+    for (const act of activities) {
+      if (act.apps) {
+        const apps =
+          act.apps instanceof Map ? act.apps : new Map(Object.entries(act.apps || {}));
+        for (const [appName, sec] of apps) {
+          const s = this.coerceSeconds(sec);
+          const key = (appName || '').trim() || 'Unknown';
+          appSec += s;
+          appAgg.set(key, (appAgg.get(key) || 0) + s);
+        }
+      }
+      if (act.languages) {
+        const langs =
+          act.languages instanceof Map
+            ? act.languages
+            : new Map(Object.entries(act.languages || {}));
+        for (const [langName, sec] of langs) {
+          const s = this.coerceSeconds(sec);
+          const key = (langName || '').trim() || 'Unknown';
+          langActSec += s;
+          langAgg.set(key, (langAgg.get(key) || 0) + s);
+        }
+      }
+    }
+
+    const topApps = this.rowsFromSecondsMap(appAgg, appSec, 25);
+    const languagesByActiveTime = this.rowsFromSecondsMap(langAgg, langActSec, 25);
+    const contextBreakdown = this.projectContextBreakdownHours(activities);
+    const behavior = this.aggregateProjectBehavior(activities);
+
+    let totalLines = 0;
+    let totalFiles = 0;
+    const langLines = new Map<string, number>();
+    if (project.current_loc && Array.isArray(project.current_loc)) {
+      for (const loc of project.current_loc) {
+        totalLines += loc.lines || 0;
+        totalFiles += loc.files || 0;
+        const lang = loc.language || 'Unknown';
+        langLines.set(lang, (langLines.get(lang) || 0) + (loc.lines || 0));
+      }
+    }
+
+    const languages = Array.from(langLines.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, lines]) => ({
+        name,
+        lines,
+        percent:
+          totalLines > 0
+            ? Math.round(((lines / totalLines) * 100 + Number.EPSILON) * 10) / 10
+            : 0,
+      }));
+
+    const skills = this.buildProjectSkillRows(project.project_skills);
+
+    return {
+      project_name: project.project_name,
+      display_name: project.display_name ?? null,
+      description: project.description ?? '',
+      first_seen: project.first_seen_at ?? null,
+      last_active: project.last_active_at ?? null,
+      app_time_hours: Math.round((appSec / 3600) * 100) / 100,
+      total_lines: totalLines,
+      total_files: totalFiles,
+      languages,
+      top_apps: topApps,
+      languages_by_active_time: languagesByActiveTime,
+      context_breakdown: contextBreakdown,
+      behavior,
+      skills,
+    };
+  }
+
+  async updateProject(
+    email: string,
+    projectName: string,
+    dto: UpdateProjectDto,
+  ): Promise<ProjectDetailResponseDto> {
+    const user = await this.userModel.findOne({ email });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const set: Record<string, unknown> = {};
+    if (dto.display_name !== undefined) {
+      const v = dto.display_name.trim();
+      // Empty or identical to sync name → no separate display name stored (default = project_name).
+      if (v.length === 0 || v === projectName) {
+        set.display_name = null;
+      } else {
+        set.display_name = v.slice(0, 200);
+      }
+    }
+    if (dto.description !== undefined) {
+      set.description = dto.description.slice(0, 2000);
+    }
+
+    if (Object.keys(set).length === 0) {
+      return this.getProjectDetail(email, projectName);
+    }
+
+    const result = await this.projectModel.updateOne(
+      { user_id: user._id, project_name: projectName },
+      { $set: set },
+    );
+    if (result.matchedCount === 0) {
+      throw new NotFoundException('Project not found');
+    }
+
+    return this.getProjectDetail(email, projectName);
+  }
+
+  /**
+   * Deletes the project row and all daily Activity documents for this user + project_name.
+   */
+  async deleteProject(email: string, projectName: string): Promise<void> {
+    const user = await this.userModel.findOne({ email });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const existing = await this.projectModel.findOne({
+      user_id: user._id,
+      project_name: projectName,
+    });
+    if (!existing) {
+      throw new NotFoundException('Project not found');
+    }
+
+    await this.activityModel.deleteMany({
+      user_id: user._id,
+      project_name: projectName,
+    });
+    await this.projectModel.deleteOne({
+      user_id: user._id,
+      project_name: projectName,
+    });
   }
 }

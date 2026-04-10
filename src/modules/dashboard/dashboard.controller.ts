@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Body, Param, UseGuards, Request, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { ToolUsageService } from './tool-usage.service';
@@ -8,6 +8,8 @@ import { ToolUsageResponseDto } from './dto/tool-usage.dto';
 import { ToolUsageDetailResponseDto } from './dto/tool-usage-detail.dto';
 import { ProjectInsightsResponseDto } from './dto/project-insights.dto';
 import { PerformanceMetricsDetailResponseDto } from './dto/performance-metrics-detail.dto';
+import { SkillsProjectsDetailResponseDto } from './dto/skills-projects-detail.dto';
+import { ProjectDetailResponseDto, UpdateProjectDto } from './dto/project-detail.dto';
 
 @ApiTags('Dashboard')
 @Controller('api/v1/dashboard')
@@ -87,5 +89,60 @@ export class DashboardController {
   @ApiResponse({ status: 404, description: 'User not found' })
   async getProjectInsights(@Request() req: any): Promise<ProjectInsightsResponseDto> {
     return this.dashboardService.getProjectInsights(req.user.email);
+  }
+
+  @Get('skills-projects-detail')
+  @ApiOperation({
+    summary: 'Skills & projects overview (detail)',
+    description:
+      'Skills from project_skills; active time (activity.apps) per project and total; lines/files from current_loc.',
+  })
+  @ApiResponse({ status: 200, description: 'Skills/projects detail retrieved successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Invalid firebase token' })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  async getSkillsProjectsDetail(@Request() req: any): Promise<SkillsProjectsDetailResponseDto> {
+    return this.dashboardService.getSkillsProjectsDetail(req.user.email);
+  }
+
+  @Get('projects/:projectName')
+  @ApiOperation({ summary: 'Single project (for detail page)' })
+  @ApiResponse({ status: 200, description: 'Project detail retrieved' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Project or user not found' })
+  async getProjectDetail(
+    @Request() req: any,
+    @Param('projectName') encodedName: string,
+  ): Promise<ProjectDetailResponseDto> {
+    const name = decodeURIComponent(encodedName);
+    return this.dashboardService.getProjectDetail(req.user.email, name);
+  }
+
+  @Patch('projects/:projectName')
+  @ApiOperation({ summary: 'Update project display name and description' })
+  @ApiResponse({ status: 200, description: 'Updated project returned' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Project not found' })
+  async updateProject(
+    @Request() req: any,
+    @Param('projectName') encodedName: string,
+    @Body() dto: UpdateProjectDto,
+  ): Promise<ProjectDetailResponseDto> {
+    const name = decodeURIComponent(encodedName);
+    return this.dashboardService.updateProject(req.user.email, name, dto);
+  }
+
+  @Delete('projects/:projectName')
+  @HttpCode(204)
+  @ApiOperation({
+    summary: 'Delete project and all its daily activity',
+    description:
+      'Removes the project document and every activity (daily aggregate) row for this user and project_name. The desktop agent may recreate the project on a future sync.',
+  })
+  @ApiResponse({ status: 204, description: 'Project and related activity deleted' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Project or user not found' })
+  async deleteProject(@Request() req: any, @Param('projectName') encodedName: string): Promise<void> {
+    const name = decodeURIComponent(encodedName);
+    await this.dashboardService.deleteProject(req.user.email, name);
   }
 }
