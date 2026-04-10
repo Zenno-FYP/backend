@@ -870,8 +870,9 @@ export class DashboardService {
         const dateB = new Date(b.last_active_at!).getTime();
         return dateB - dateA; // Descending order (most recent first)
       })
-      .map(p => ({
+      .map((p) => ({
         name: p.project_name,
+        display_name: p.display_name ?? null,
         last_active: p.last_active_at!,
       }));
 
