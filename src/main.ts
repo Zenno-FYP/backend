@@ -3,12 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
-
-function parseCorsOrigins(): string[] | true {
-  const raw = process.env.CORS_ORIGINS;
-  if (!raw || raw === '*') return true;
-  return raw.split(',').map((o) => o.trim()).filter(Boolean);
-}
+import { parseCorsOrigins } from './common/cors-origins';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

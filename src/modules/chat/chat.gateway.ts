@@ -18,12 +18,7 @@ import { ChatService } from './chat.service';
 import { MarkReadWsDto, SendMessageWsDto } from './dto/chat-rest.dto';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
-
-function parseCorsOrigins(): string[] | true {
-  const raw = process.env.CORS_ORIGINS;
-  if (!raw || raw === '*') return true;
-  return raw.split(',').map((o) => o.trim()).filter(Boolean);
-}
+import { parseCorsOrigins } from '../../common/cors-origins';
 
 @WebSocketGateway({
   namespace: '/chat',
