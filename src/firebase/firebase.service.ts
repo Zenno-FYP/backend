@@ -19,14 +19,18 @@ export class FirebaseService implements OnModuleInit {
         throw new Error('Missing Firebase credentials');
       }
 
-      // Check if the private key is Base64 encoded (doesn't start with '-----BEGIN')
-      if (!privateKey.startsWith('-----BEGIN')) {
-        // Decode from Base64
-        privateKey = Buffer.from(privateKey, 'base64').toString('utf-8');
-        this.logger.log('Firebase private key decoded from Base64');
-      } else {
-        // Fallback: handle escaped newlines for standard format
-        privateKey = privateKey.replace(/\\n/g, '\n');
+      // Aggressive cleanup:
+      if (privateKey) {
+        // 1. If it's Base64, decode it
+        if (!privateKey.trim().startsWith('-----BEGIN')) {
+          privateKey = Buffer.from(privateKey, 'base64').toString('utf8');
+          this.logger.log('Firebase private key decoded from Base64');
+        }
+
+        // 2. Remove any accidental wrapping quotes and fix double-escaped newlines
+        privateKey = privateKey
+          .replace(/^["']|["']$/g, '') // Remove quotes at start/end
+          .replace(/\\n/g, '\n');      // Fix literal \n into real newlines
       }
 
       if (!admin.apps.length) {
