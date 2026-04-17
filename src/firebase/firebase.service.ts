@@ -21,13 +21,17 @@ export class FirebaseService implements OnModuleInit {
 
       // Aggressive cleanup:
       if (privateKey) {
-        // 1. If it's Base64, decode it
-        if (!privateKey.trim().startsWith('-----BEGIN')) {
+        // Remove all whitespace (spaces, newlines, tabs)
+        privateKey = privateKey.replace(/\s+/g, '');
+
+        // Check if it's Base64 (doesn't start with '-----BEGIN')
+        if (!privateKey.startsWith('-----BEGIN')) {
+          // Decode from Base64
           privateKey = Buffer.from(privateKey, 'base64').toString('utf8');
           this.logger.log('Firebase private key decoded from Base64');
         }
 
-        // 2. Remove any accidental wrapping quotes and fix double-escaped newlines
+        // Remove any accidental wrapping quotes and fix double-escaped newlines
         privateKey = privateKey
           .replace(/^["']|["']$/g, '') // Remove quotes at start/end
           .replace(/\\n/g, '\n');      // Fix literal \n into real newlines
