@@ -8,7 +8,7 @@ export class FirebaseService implements OnModuleInit {
 
   onModuleInit() {
     try {
-      const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+      let privateKey = process.env.FIREBASE_PRIVATE_KEY;
       const projectId = process.env.FIREBASE_PROJECT_ID;
       const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 
@@ -17,6 +17,16 @@ export class FirebaseService implements OnModuleInit {
       if (!privateKey || !projectId || !clientEmail) {
         this.logger.error('Missing Firebase credentials in environment variables');
         throw new Error('Missing Firebase credentials');
+      }
+
+      // Check if the private key is Base64 encoded (doesn't start with '-----BEGIN')
+      if (!privateKey.startsWith('-----BEGIN')) {
+        // Decode from Base64
+        privateKey = Buffer.from(privateKey, 'base64').toString('utf-8');
+        this.logger.log('Firebase private key decoded from Base64');
+      } else {
+        // Fallback: handle escaped newlines for standard format
+        privateKey = privateKey.replace(/\\n/g, '\n');
       }
 
       if (!admin.apps.length) {
