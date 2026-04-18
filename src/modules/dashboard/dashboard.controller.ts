@@ -95,8 +95,13 @@ export class DashboardController {
   @ApiResponse({ status: 200, description: 'Tool usage detail retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid firebase token' })
   @ApiResponse({ status: 404, description: 'User not found' })
-  async getToolUsageDetail(@Request() req: any): Promise<ToolUsageDetailResponseDto> {
-    return this.toolUsageService.getToolUsageDetail(req.user.email);
+  async getToolUsageDetail(
+    @Request() req: any,
+    @Query('period') period?: string,
+  ): Promise<ToolUsageDetailResponseDto> {
+    const validPeriods = ['week', 'month', '90days', '6months'];
+    const safePeriod = validPeriods.includes(period ?? '') ? period! : 'week';
+    return this.toolUsageService.getToolUsageDetail(req.user.email, safePeriod);
   }
 
   @Get('project-insights')
