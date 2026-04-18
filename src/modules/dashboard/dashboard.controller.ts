@@ -50,15 +50,24 @@ export class DashboardController {
 
   @Get('performance-metrics-detail')
   @ApiOperation({
-    summary: 'Performance metrics detail (7-day summary + daily behavior)',
+    summary: 'Performance metrics detail with period selector',
     description:
-      'Returns the same performance summary as the dashboard home (vs prior 7 days) plus a daily series derived from activity behavior: typing KPM, mouse CPM, correction rate, active/idle hours, deletions, and mouse movement.',
+      'Returns performance summary (vs prior period) plus daily behavior series and grouped context trend chart. ' +
+      'Pass ?period=week (default), month, 90days, or 6months.',
   })
   @ApiResponse({ status: 200, description: 'Performance metrics detail retrieved successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid period value' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid firebase token' })
   @ApiResponse({ status: 404, description: 'User not found' })
-  async getPerformanceMetricsDetail(@Request() req: any): Promise<PerformanceMetricsDetailResponseDto> {
-    return this.dashboardService.getPerformanceMetricsDetail(req.user.email);
+  async getPerformanceMetricsDetail(
+    @Request() req: any,
+    @Query('period') period?: string,
+  ): Promise<PerformanceMetricsDetailResponseDto> {
+    const validPeriods = ['week', 'month', '90days', '6months'];
+    if (period && !validPeriods.includes(period)) {
+      throw new BadRequestException(`period must be one of: ${validPeriods.join(', ')}`);
+    }
+    return this.dashboardService.getPerformanceMetricsDetail(req.user.email, period);
   }
 
   @Get('tool-usage')
