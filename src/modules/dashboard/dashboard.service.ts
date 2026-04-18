@@ -23,17 +23,29 @@ export class DashboardService {
     @InjectModel(User.name) private userModel: Model<User>,
   ) {}
 
-  private getDateRangeForUser(user: User): {
+  /**
+   * Compute the four date boundaries needed for a 7-day performance window.
+   *
+   * @param user  - user document (needed for timezone offset)
+   * @param periodOffset - 0 = current week (last 7 days), 7 = previous week (8–14 days ago)
+   *
+   * With offset 0:  display window  = [today-6 … today],  compare = [today-13 … today-7]
+   * With offset 7:  display window  = [today-13 … today-7], compare = [today-20 … today-14]
+   */
+  private getDateRangeForUser(
+    user: User,
+    periodOffset = 0,
+  ): {
     today: Date;
     currentStart: Date;
     previousStart: Date;
     previousEnd: Date;
   } {
-    let today: Date;
+    let localToday: Date;
     if (user.timezone_offset !== undefined && user.timezone_offset !== null) {
       const now = new Date();
       const userLocalNow = new Date(now.getTime() + user.timezone_offset * 60 * 60 * 1000);
-      today = new Date(
+      localToday = new Date(
         Date.UTC(
           userLocalNow.getUTCFullYear(),
           userLocalNow.getUTCMonth(),
@@ -41,9 +53,14 @@ export class DashboardService {
         ),
       );
     } else {
-      today = new Date();
-      today.setUTCHours(0, 0, 0, 0);
+      localToday = new Date();
+      localToday.setUTCHours(0, 0, 0, 0);
     }
+
+    // Shift the anchor date backwards for previous-week requests.
+    const today = new Date(localToday);
+    today.setUTCDate(localToday.getUTCDate() - periodOffset);
+
     const currentStart = new Date(today);
     currentStart.setUTCDate(today.getUTCDate() - 6);
     const previousStart = new Date(today);
@@ -100,20 +117,27 @@ export class DashboardService {
   }
 
   /**
-   * Get dashboard performance metrics for current 7 days vs previous 7 days
-   * Current Period: [Today] back to [Today - 6 days] (7 days inclusive)
-   * Previous Period: [Today - 7 days] back to [Today - 13 days]
+   * Get dashboard performance metrics.
+   *
+   * @param period  'current_week' (default) – last 7 days vs prior 7 days
+   *                'previous_week'          – 8–14 days ago vs 15–21 days ago
    */
-  async getPerformanceMetrics(email: string): Promise<PerformanceMetricsResponseDto> {
+  async getPerformanceMetrics(
+    email: string,
+    period?: string,
+  ): Promise<PerformanceMetricsResponseDto> {
     const user = await this.userModel.findOne({ email });
     if (!user) {
       throw new BadRequestException('User not found');
     }
 
+    const periodOffset = period === 'previous_week' ? 7 : 0;
     const userId = user._id;
-    const { today, currentStart, previousStart, previousEnd } = this.getDateRangeForUser(user);
+    const { today, currentStart, previousStart, previousEnd } = this.getDateRangeForUser(
+      user,
+      periodOffset,
+    );
 
-    // Fetch current and previous period activities
     const [currentActivities, previousActivities] = await Promise.all([
       this.activityModel.find({
         user_id: userId,
@@ -128,50 +152,182 @@ export class DashboardService {
     const currentMetrics = this.calculateMetrics(currentActivities);
     const previousMetrics = this.calculateMetrics(previousActivities);
     const performanceSummary = this.mapToPerformanceSummary(currentMetrics, previousMetrics);
-
-    // Generate usage trend graph (7 days)
     const usageTrendGraph = this.generateUsageTrend(currentActivities, currentStart);
 
     return {
-      period: 'last_7_days',
+      period: period === 'previous_week' ? 'previous_week' : 'current_week',
       performance_summary: performanceSummary,
       usage_trend_graph: usageTrendGraph,
     };
   }
 
   /**
-   * Performance metrics detail: same summary as the dashboard home, plus per-day behavior from activities.
+   * Performance metrics detail with configurable period (week / month / 90days / 6months).
+   * Returns summary vs prior equal-length window, daily behavior series, and a grouped context trend.
    */
-  async getPerformanceMetricsDetail(email: string): Promise<PerformanceMetricsDetailResponseDto> {
+  async getPerformanceMetricsDetail(
+    email: string,
+    period = 'week',
+  ): Promise<PerformanceMetricsDetailResponseDto> {
     const user = await this.userModel.findOne({ email });
-    if (!user) {
-      throw new BadRequestException('User not found');
-    }
+    if (!user) throw new BadRequestException('User not found');
 
-    const userId = user._id;
-    const { today, currentStart, previousStart, previousEnd } = this.getDateRangeForUser(user);
+    const windowDays = this.periodToWindowDays(period);
+    const { today, currentStart, previousStart, previousEnd } =
+      this.getDateRangeByWindow(user, windowDays);
 
     const [currentActivities, previousActivities] = await Promise.all([
-      this.activityModel.find({
-        user_id: userId,
-        date: { $gte: currentStart, $lte: today },
-      }),
-      this.activityModel.find({
-        user_id: userId,
-        date: { $gte: previousStart, $lt: previousEnd },
-      }),
+      this.activityModel.find({ user_id: user._id, date: { $gte: currentStart, $lte: today } }),
+      this.activityModel.find({ user_id: user._id, date: { $gte: previousStart, $lt: previousEnd } }),
     ]);
 
     const currentMetrics = this.calculateMetrics(currentActivities);
     const previousMetrics = this.calculateMetrics(previousActivities);
     const performanceSummary = this.mapToPerformanceSummary(currentMetrics, previousMetrics);
-    const dailySeries = this.generateDailyBehaviorSeries(currentActivities, currentStart);
+    const dailySeries = this.generateDailyBehaviorSeries(currentActivities, currentStart, windowDays);
+    const usageTrendGraph = this.generateGroupedTrend(currentActivities, currentStart, windowDays);
 
     return {
-      period: 'last_7_days',
+      period,
       performance_summary: performanceSummary,
       daily_series: dailySeries,
+      usage_trend_graph: usageTrendGraph,
     };
+  }
+
+  /** Map period string to number of days in the display window */
+  private periodToWindowDays(period: string): number {
+    switch (period) {
+      case 'month':   return 30;
+      case '90days':  return 90;
+      case '6months': return 180;
+      default:        return 7;
+    }
+  }
+
+  /**
+   * Like getDateRangeForUser but for an arbitrary window size.
+   * current  window: [today-(N-1) … today]
+   * previous window: [today-(2N-1) … today-N] (exclusive upper bound)
+   */
+  private getDateRangeByWindow(
+    user: User,
+    windowDays: number,
+  ): { today: Date; currentStart: Date; previousStart: Date; previousEnd: Date } {
+    const offsetHours = typeof user.timezone_offset === 'number' ? user.timezone_offset : 0;
+    const localToday = new Date();
+    if (offsetHours !== 0) localToday.setUTCHours(localToday.getUTCHours() + offsetHours);
+    localToday.setUTCHours(0, 0, 0, 0);
+    const today = new Date(localToday);
+
+    const currentStart = new Date(today);
+    currentStart.setUTCDate(today.getUTCDate() - (windowDays - 1));
+
+    const previousEnd = new Date(currentStart);   // exclusive
+
+    const previousStart = new Date(currentStart);
+    previousStart.setUTCDate(currentStart.getUTCDate() - windowDays);
+
+    return { today, currentStart, previousStart, previousEnd };
+  }
+
+  /**
+   * Build a context-type trend chart grouped appropriately for the window:
+   *   ≤ 7 days  → one bar per day  (Mon, Tue, …)
+   *   ≤ 90 days → one bar per week (Wk 1, Wk 2, …)
+   *   > 90 days → one bar per month (Jan, Feb, …)
+   */
+  private generateGroupedTrend(
+    activities: Activity[],
+    startDate: Date,
+    windowDays: number,
+  ): UsageTrendBarDto[] {
+    const dayMap = new Map<string, Activity[]>();
+    for (const activity of activities) {
+      const d = activity.date.toISOString().split('T')[0];
+      if (!dayMap.has(d)) dayMap.set(d, []);
+      dayMap.get(d)!.push(activity);
+    }
+
+    if (windowDays <= 7) {
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      return Array.from({ length: windowDays }, (_, i) => {
+        const date = new Date(startDate);
+        date.setUTCDate(startDate.getUTCDate() + i);
+        const dateStr = date.toISOString().split('T')[0];
+        const { flow, debugging, research, communication, distracted } =
+          this.categorizeActivities(dayMap.get(dateStr) ?? []);
+        return {
+          date: dateStr,
+          day_name: dayNames[date.getUTCDay()],
+          flow_hours: Math.round(flow * 100) / 100,
+          debugging_hours: Math.round(debugging * 100) / 100,
+          research_hours: Math.round(research * 100) / 100,
+          communication_hours: Math.round(communication * 100) / 100,
+          distracted_hours: Math.round(distracted * 100) / 100,
+        };
+      });
+    }
+
+    if (windowDays <= 90) {
+      // Weekly buckets
+      const numWeeks = Math.ceil(windowDays / 7);
+      return Array.from({ length: numWeeks }, (_, w) => {
+        const weekStart = new Date(startDate);
+        weekStart.setUTCDate(startDate.getUTCDate() + w * 7);
+        const weekActivities: Activity[] = [];
+        for (let d = 0; d < 7; d++) {
+          const day = new Date(weekStart);
+          day.setUTCDate(weekStart.getUTCDate() + d);
+          const ds = day.toISOString().split('T')[0];
+          weekActivities.push(...(dayMap.get(ds) ?? []));
+        }
+        const { flow, debugging, research, communication, distracted } =
+          this.categorizeActivities(weekActivities);
+        return {
+          date: weekStart.toISOString().split('T')[0],
+          day_name: `Wk${w + 1}`,
+          flow_hours: Math.round(flow * 100) / 100,
+          debugging_hours: Math.round(debugging * 100) / 100,
+          research_hours: Math.round(research * 100) / 100,
+          communication_hours: Math.round(communication * 100) / 100,
+          distracted_hours: Math.round(distracted * 100) / 100,
+        };
+      });
+    }
+
+    // Monthly buckets — compute the ACTUAL calendar-month span so the current month
+    // is always included (e.g. Oct 21 → Apr 18 = 7 calendar months, not 6).
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monthMap = new Map<string, Activity[]>();
+    for (const [ds, acts] of dayMap) {
+      const mk = ds.substring(0, 7);
+      if (!monthMap.has(mk)) monthMap.set(mk, []);
+      monthMap.get(mk)!.push(...acts);
+    }
+    const endDate = new Date(Date.UTC(
+      startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate() + windowDays - 1,
+    ));
+    const numMonths =
+      (endDate.getUTCFullYear() - startDate.getUTCFullYear()) * 12 +
+      (endDate.getUTCMonth() - startDate.getUTCMonth()) + 1;
+    return Array.from({ length: numMonths }, (_, m) => {
+      const monthDate = new Date(
+        Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth() + m, 1),
+      );
+      const mk = `${monthDate.getUTCFullYear()}-${String(monthDate.getUTCMonth() + 1).padStart(2, '0')}`;
+      const { flow, debugging, research, communication, distracted } =
+        this.categorizeActivities(monthMap.get(mk) ?? []);
+      return {
+        date: `${mk}-01`,
+        day_name: monthNames[monthDate.getUTCMonth()],
+        flow_hours: Math.round(flow * 100) / 100,
+        debugging_hours: Math.round(debugging * 100) / 100,
+        research_hours: Math.round(research * 100) / 100,
+        communication_hours: Math.round(communication * 100) / 100,
+        distracted_hours: Math.round(distracted * 100) / 100,
+      };
+    });
   }
 
   /**
@@ -306,10 +462,12 @@ export class DashboardService {
 
   /**
    * Per-calendar-day aggregates of behavior fields (all projects combined).
+   * windowDays controls how many days are generated (default 7).
    */
   private generateDailyBehaviorSeries(
     activities: Activity[],
     startDate: Date,
+    windowDays = 7,
   ): DailyBehaviorMetricsDto[] {
     const dayMap = new Map<string, Activity[]>();
     for (const activity of activities) {
@@ -323,7 +481,7 @@ export class DashboardService {
     const result: DailyBehaviorMetricsDto[] = [];
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < windowDays; i++) {
       const date = new Date(startDate);
       date.setUTCDate(startDate.getUTCDate() + i);
       const dateStr = date.toISOString().split('T')[0];

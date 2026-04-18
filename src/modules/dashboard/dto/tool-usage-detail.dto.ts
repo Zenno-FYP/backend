@@ -24,11 +24,14 @@ export class AppCategoryUsageDto {
 }
 
 export class ToolUsageDetailResponseDto {
-  @ApiProperty({ description: 'Period label', example: 'last_7_days' })
+  @ApiProperty({ description: 'Period key', example: 'week' })
   period: string;
 
   @ApiProperty({ description: 'Distinct apps with any usage in the window' })
   unique_apps_count: number;
+
+  @ApiProperty({ description: 'Change vs prior equivalent window (0–100 scale, can be negative)' })
+  vs_prior_period_percent: number;
 
   @ApiProperty({
     description:
@@ -37,12 +40,12 @@ export class ToolUsageDetailResponseDto {
   })
   category_breakdown: AppCategoryUsageDto[];
 
-  @ApiProperty({ description: 'Per-day total app hours (7 days)', type: [DailyAppUsageDto] })
+  @ApiProperty({ description: 'Grouped app hours bars (day/week/month depending on period)', type: [DailyAppUsageDto] })
   daily_app_usage: DailyAppUsageDto[];
 
   @ApiProperty({ description: 'Top apps with usage stats (detail list)', type: TopAppsDto })
   top_apps: TopAppsDto;
 
-  @ApiProperty({ description: 'Language distribution from project LOC', type: LanguageDistributionDto })
+  @ApiProperty({ description: 'Language distribution from project LOC (all-time)', type: LanguageDistributionDto })
   language_distribution: LanguageDistributionDto;
 }

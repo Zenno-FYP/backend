@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Delete, Body, Param, Query, UseGuards, Request, HttpCode } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Body, Param, Query, UseGuards, Request, HttpCode, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { ToolUsageService } from './tool-usage.service';
@@ -30,26 +30,44 @@ export class DashboardController {
   @ApiOperation({
     summary: 'Get dashboard performance metrics',
     description:
-      'Get performance metrics comparing current 7 days vs previous 7 days. Returns key metrics (WPM, daily active average, clicks, scrolls, idle time) with trends and daily breakdown for stacked bar chart.',
+      'Get performance metrics comparing a 7-day window vs the prior 7 days. ' +
+      'Pass ?period=previous_week to shift the window back 7 days (8–14 days ago vs 15–21 days ago). ' +
+      'Default is current_week (last 7 days).',
   })
   @ApiResponse({ status: 200, description: 'Performance metrics retrieved successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid period value' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid firebase token' })
   @ApiResponse({ status: 404, description: 'User not found' })
-  async getPerformanceMetrics(@Request() req: any): Promise<PerformanceMetricsResponseDto> {
-    return this.dashboardService.getPerformanceMetrics(req.user.email);
+  async getPerformanceMetrics(
+    @Request() req: any,
+    @Query('period') period?: string,
+  ): Promise<PerformanceMetricsResponseDto> {
+    if (period && !['current_week', 'previous_week'].includes(period)) {
+      throw new BadRequestException('period must be current_week or previous_week');
+    }
+    return this.dashboardService.getPerformanceMetrics(req.user.email, period);
   }
 
   @Get('performance-metrics-detail')
   @ApiOperation({
-    summary: 'Performance metrics detail (7-day summary + daily behavior)',
+    summary: 'Performance metrics detail with period selector',
     description:
-      'Returns the same performance summary as the dashboard home (vs prior 7 days) plus a daily series derived from activity behavior: typing KPM, mouse CPM, correction rate, active/idle hours, deletions, and mouse movement.',
+      'Returns performance summary (vs prior period) plus daily behavior series and grouped context trend chart. ' +
+      'Pass ?period=week (default), month, 90days, or 6months.',
   })
   @ApiResponse({ status: 200, description: 'Performance metrics detail retrieved successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid period value' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid firebase token' })
   @ApiResponse({ status: 404, description: 'User not found' })
-  async getPerformanceMetricsDetail(@Request() req: any): Promise<PerformanceMetricsDetailResponseDto> {
-    return this.dashboardService.getPerformanceMetricsDetail(req.user.email);
+  async getPerformanceMetricsDetail(
+    @Request() req: any,
+    @Query('period') period?: string,
+  ): Promise<PerformanceMetricsDetailResponseDto> {
+    const validPeriods = ['week', 'month', '90days', '6months'];
+    if (period && !validPeriods.includes(period)) {
+      throw new BadRequestException(`period must be one of: ${validPeriods.join(', ')}`);
+    }
+    return this.dashboardService.getPerformanceMetricsDetail(req.user.email, period);
   }
 
   @Get('tool-usage')
@@ -77,8 +95,13 @@ export class DashboardController {
   @ApiResponse({ status: 200, description: 'Tool usage detail retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid firebase token' })
   @ApiResponse({ status: 404, description: 'User not found' })
-  async getToolUsageDetail(@Request() req: any): Promise<ToolUsageDetailResponseDto> {
-    return this.toolUsageService.getToolUsageDetail(req.user.email);
+  async getToolUsageDetail(
+    @Request() req: any,
+    @Query('period') period?: string,
+  ): Promise<ToolUsageDetailResponseDto> {
+    const validPeriods = ['week', 'month', '90days', '6months'];
+    const safePeriod = validPeriods.includes(period ?? '') ? period! : 'week';
+    return this.toolUsageService.getToolUsageDetail(req.user.email, safePeriod);
   }
 
   @Get('project-insights')

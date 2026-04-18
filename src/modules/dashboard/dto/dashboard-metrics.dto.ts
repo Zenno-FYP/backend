@@ -91,8 +91,9 @@ export class UsageTrendBarDto {
 
 export class PerformanceMetricsResponseDto {
   @ApiProperty({
-    example: 'last_7_days',
-    description: 'Period type',
+    example: 'current_week',
+    enum: ['current_week', 'previous_week'],
+    description: 'Which 7-day window the data covers',
   })
   period: string;
 

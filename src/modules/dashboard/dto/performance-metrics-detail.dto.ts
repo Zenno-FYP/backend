@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { PerformanceSummaryDto } from './dashboard-metrics.dto';
+import { PerformanceSummaryDto, UsageTrendBarDto } from './dashboard-metrics.dto';
 
 export class DailyBehaviorMetricsDto {
   @ApiProperty({ example: '2026-04-09' })
@@ -37,7 +37,11 @@ export class DailyBehaviorMetricsDto {
 }
 
 export class PerformanceMetricsDetailResponseDto {
-  @ApiProperty({ example: 'last_7_days' })
+  @ApiProperty({
+    example: 'week',
+    enum: ['week', 'month', '90days', '6months'],
+    description: 'The period this data covers',
+  })
   period: string;
 
   @ApiProperty({ type: PerformanceSummaryDto })
@@ -45,4 +49,10 @@ export class PerformanceMetricsDetailResponseDto {
 
   @ApiProperty({ type: [DailyBehaviorMetricsDto] })
   daily_series: DailyBehaviorMetricsDto[];
+
+  @ApiProperty({
+    description: 'Context-type trend chart data, grouped by day/week/month depending on period',
+    type: [UsageTrendBarDto],
+  })
+  usage_trend_graph: UsageTrendBarDto[];
 }
