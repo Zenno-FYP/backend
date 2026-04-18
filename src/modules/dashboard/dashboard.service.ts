@@ -23,17 +23,29 @@ export class DashboardService {
     @InjectModel(User.name) private userModel: Model<User>,
   ) {}
 
-  private getDateRangeForUser(user: User): {
+  /**
+   * Compute the four date boundaries needed for a 7-day performance window.
+   *
+   * @param user  - user document (needed for timezone offset)
+   * @param periodOffset - 0 = current week (last 7 days), 7 = previous week (8–14 days ago)
+   *
+   * With offset 0:  display window  = [today-6 … today],  compare = [today-13 … today-7]
+   * With offset 7:  display window  = [today-13 … today-7], compare = [today-20 … today-14]
+   */
+  private getDateRangeForUser(
+    user: User,
+    periodOffset = 0,
+  ): {
     today: Date;
     currentStart: Date;
     previousStart: Date;
     previousEnd: Date;
   } {
-    let today: Date;
+    let localToday: Date;
     if (user.timezone_offset !== undefined && user.timezone_offset !== null) {
       const now = new Date();
       const userLocalNow = new Date(now.getTime() + user.timezone_offset * 60 * 60 * 1000);
-      today = new Date(
+      localToday = new Date(
         Date.UTC(
           userLocalNow.getUTCFullYear(),
           userLocalNow.getUTCMonth(),
@@ -41,9 +53,14 @@ export class DashboardService {
         ),
       );
     } else {
-      today = new Date();
-      today.setUTCHours(0, 0, 0, 0);
+      localToday = new Date();
+      localToday.setUTCHours(0, 0, 0, 0);
     }
+
+    // Shift the anchor date backwards for previous-week requests.
+    const today = new Date(localToday);
+    today.setUTCDate(localToday.getUTCDate() - periodOffset);
+
     const currentStart = new Date(today);
     currentStart.setUTCDate(today.getUTCDate() - 6);
     const previousStart = new Date(today);
@@ -100,20 +117,27 @@ export class DashboardService {
   }
 
   /**
-   * Get dashboard performance metrics for current 7 days vs previous 7 days
-   * Current Period: [Today] back to [Today - 6 days] (7 days inclusive)
-   * Previous Period: [Today - 7 days] back to [Today - 13 days]
+   * Get dashboard performance metrics.
+   *
+   * @param period  'current_week' (default) – last 7 days vs prior 7 days
+   *                'previous_week'          – 8–14 days ago vs 15–21 days ago
    */
-  async getPerformanceMetrics(email: string): Promise<PerformanceMetricsResponseDto> {
+  async getPerformanceMetrics(
+    email: string,
+    period?: string,
+  ): Promise<PerformanceMetricsResponseDto> {
     const user = await this.userModel.findOne({ email });
     if (!user) {
       throw new BadRequestException('User not found');
     }
 
+    const periodOffset = period === 'previous_week' ? 7 : 0;
     const userId = user._id;
-    const { today, currentStart, previousStart, previousEnd } = this.getDateRangeForUser(user);
+    const { today, currentStart, previousStart, previousEnd } = this.getDateRangeForUser(
+      user,
+      periodOffset,
+    );
 
-    // Fetch current and previous period activities
     const [currentActivities, previousActivities] = await Promise.all([
       this.activityModel.find({
         user_id: userId,
@@ -128,12 +152,10 @@ export class DashboardService {
     const currentMetrics = this.calculateMetrics(currentActivities);
     const previousMetrics = this.calculateMetrics(previousActivities);
     const performanceSummary = this.mapToPerformanceSummary(currentMetrics, previousMetrics);
-
-    // Generate usage trend graph (7 days)
     const usageTrendGraph = this.generateUsageTrend(currentActivities, currentStart);
 
     return {
-      period: 'last_7_days',
+      period: period === 'previous_week' ? 'previous_week' : 'current_week',
       performance_summary: performanceSummary,
       usage_trend_graph: usageTrendGraph,
     };

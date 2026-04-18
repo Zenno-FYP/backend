@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Delete, Body, Param, Query, UseGuards, Request, HttpCode } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Body, Param, Query, UseGuards, Request, HttpCode, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { ToolUsageService } from './tool-usage.service';
@@ -30,13 +30,22 @@ export class DashboardController {
   @ApiOperation({
     summary: 'Get dashboard performance metrics',
     description:
-      'Get performance metrics comparing current 7 days vs previous 7 days. Returns key metrics (WPM, daily active average, clicks, scrolls, idle time) with trends and daily breakdown for stacked bar chart.',
+      'Get performance metrics comparing a 7-day window vs the prior 7 days. ' +
+      'Pass ?period=previous_week to shift the window back 7 days (8–14 days ago vs 15–21 days ago). ' +
+      'Default is current_week (last 7 days).',
   })
   @ApiResponse({ status: 200, description: 'Performance metrics retrieved successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid period value' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid firebase token' })
   @ApiResponse({ status: 404, description: 'User not found' })
-  async getPerformanceMetrics(@Request() req: any): Promise<PerformanceMetricsResponseDto> {
-    return this.dashboardService.getPerformanceMetrics(req.user.email);
+  async getPerformanceMetrics(
+    @Request() req: any,
+    @Query('period') period?: string,
+  ): Promise<PerformanceMetricsResponseDto> {
+    if (period && !['current_week', 'previous_week'].includes(period)) {
+      throw new BadRequestException('period must be current_week or previous_week');
+    }
+    return this.dashboardService.getPerformanceMetrics(req.user.email, period);
   }
 
   @Get('performance-metrics-detail')
