@@ -6,6 +6,13 @@ import { AppModule } from './app.module';
 import { parseCorsOrigins } from './common/cors-origins';
 
 async function bootstrap() {
+  // @nestjs/schedule ≥ 4 calls crypto.randomUUID() as a global, which only
+  // became available on globalThis in Node 19+. Polyfill for Node 18 servers.
+  if (typeof (globalThis as any).crypto === 'undefined') {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    (globalThis as any).crypto = require('node:crypto').webcrypto;
+  }
+
   const app = await NestFactory.create(AppModule);
   app.useWebSocketAdapter(new IoAdapter(app));
 
