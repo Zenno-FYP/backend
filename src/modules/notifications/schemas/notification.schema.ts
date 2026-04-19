@@ -8,9 +8,9 @@ export class Notification extends Document {
 
   @Prop({
     required: true,
-    enum: ['chat_message', 'new_project', 'daily_digest'],
+    enum: ['chat_message', 'new_project', 'daily_digest', 'test'],
   })
-  type: 'chat_message' | 'new_project' | 'daily_digest';
+  type: 'chat_message' | 'new_project' | 'daily_digest' | 'test';
 
   @Prop({ required: true })
   title: string;
