@@ -19,13 +19,13 @@ export class AgentPreferences extends Document {
   @Prop({ default: 'focused', enum: ['focused', 'burnout', 'habits', 'minimal'] })
   wellbeing_goal: string;
 
-  /** Whether the user attends frequent meetings (lowers meeting-suppression threshold). */
-  @Prop({ default: false })
-  has_meetings: boolean;
-
   /** Master switch: when false the desktop agent skips all nudges. */
   @Prop({ default: true })
   nudge_enabled: boolean;
+
+  /** Play a short chime sound on each desktop nudge notification. */
+  @Prop({ default: false })
+  notification_sound: boolean;
 
   /** Cosmetic tone shown on the website agent card. */
   @Prop({ default: 'motivational', enum: ['friendly', 'motivational', 'professional', 'casual'] })

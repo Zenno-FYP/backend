@@ -20,12 +20,12 @@ export class UpdateAgentPreferencesDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  has_meetings?: boolean;
+  nudge_enabled?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  nudge_enabled?: boolean;
+  notification_sound?: boolean;
 
   @ApiPropertyOptional({ enum: ['friendly', 'motivational', 'professional', 'casual'] })
   @IsOptional()
