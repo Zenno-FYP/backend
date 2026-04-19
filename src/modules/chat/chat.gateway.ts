@@ -23,7 +23,21 @@ import { parseCorsOrigins } from '../../common/cors-origins';
 
 @WebSocketGateway({
   namespace: '/chat',
-  cors: { origin: parseCorsOrigins(), credentials: true },
+  // Use a function so origin resolution is deferred to connection time
+  // (after ConfigModule has loaded .env.production into process.env).
+  // Calling parseCorsOrigins() directly in the decorator would evaluate
+  // at class-load time, before NestJS bootstraps, so env vars aren't set yet.
+  cors: {
+    origin: (origin: string, cb: (err: Error | null, allow?: boolean) => void) => {
+      const allowed = parseCorsOrigins();
+      if (allowed === true || (Array.isArray(allowed) && allowed.includes(origin))) {
+        cb(null, true);
+      } else {
+        cb(new Error(`WebSocket origin not allowed: ${origin}`));
+      }
+    },
+    credentials: true,
+  },
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(ChatGateway.name);
@@ -104,7 +118,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const senderUser = await this.userModel.findById((client.data as { mongoUserId: string }).mongoUserId);
       const senderName = senderUser?.name ?? 'Someone';
       this.notificationService
-        .createChatNotification(saved.recipientMongoId, senderName, dto.text.slice(0, 80), saved.conversationId)
+        .createChatNotification(
+          saved.recipientMongoId,
+          senderName,
+          dto.text.slice(0, 80),
+          saved.conversationId,
+          (client.data as { mongoUserId: string }).mongoUserId,
+        )
         .catch((e) => this.logger.warn('Chat notification error', e));
 
       return { ok: true, message: saved.message };

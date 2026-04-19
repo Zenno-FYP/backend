@@ -19,9 +19,10 @@ import { NotificationService } from './notification.service';
 import {
   RegisterDeviceDto,
   UpdateNotificationPreferencesDto,
+  ListNotificationsQueryDto,
 } from './dto/notification.dto';
 
-@Controller('notifications')
+@Controller('api/v1/notifications')
 @UseGuards(FirebaseAuthGuard)
 export class NotificationController {
   constructor(
@@ -29,10 +30,39 @@ export class NotificationController {
     @InjectModel(User.name) private readonly userModel: Model<User>,
   ) {}
 
+  /**
+   * Resolve the Mongo `users._id` for the currently authenticated request.
+   *
+   * Memoizes the lookup on the request object itself so a single HTTP
+   * request that calls multiple controller methods (or the same helper)
+   * doesn't hit Mongo more than once for the same request.
+   *
+   * The `users` collection is keyed by email (the schema doesn't currently
+   * store firebase_uid), so we look up by email and only return the `_id`
+   * field — no need to load the whole document.
+   */
   private async getUserId(req: any): Promise<Types.ObjectId> {
-    const email = req.user?.email;
-    const user = await this.userModel.findOne({ email });
-    return user!._id as Types.ObjectId;
+    if (req._zennoUserId instanceof Types.ObjectId) {
+      return req._zennoUserId as Types.ObjectId;
+    }
+    const email: string | undefined = req.user?.email;
+    if (!email) {
+      throw new Error(
+        `NotificationController: authenticated request had no email (uid=${req.user?.uid ?? '?'})`,
+      );
+    }
+    const user = await this.userModel
+      .findOne({ email })
+      .select({ _id: 1 })
+      .lean();
+    if (!user) {
+      throw new Error(
+        `NotificationController: no user record for email=${email}`,
+      );
+    }
+    const id = user._id as Types.ObjectId;
+    req._zennoUserId = id;
+    return id;
   }
 
   @Post('devices')
@@ -55,15 +85,11 @@ export class NotificationController {
   }
 
   @Get()
-  async list(
-    @Req() req: any,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
+  async list(@Req() req: any, @Query() query: ListNotificationsQueryDto) {
     const userId = await this.getUserId(req);
-    const p = Math.max(1, parseInt(page || '1', 10) || 1);
-    const l = Math.min(50, Math.max(1, parseInt(limit || '20', 10) || 20));
-    return this.notificationService.listNotifications(userId, p, l);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    return this.notificationService.listNotifications(userId, page, limit);
   }
 
   @Get('unread-count')

@@ -36,7 +36,16 @@ export class Notification extends Document {
 
 export const NotificationSchema = SchemaFactory.createForClass(Notification);
 
+// Primary list-by-user index (covers `listNotifications` + the bell badge).
 NotificationSchema.index({ user_id: 1, created_at: -1 });
+
+// `getUnreadCount` and `markAllRead` filter by (user_id, read_at: null).
+// Partial index keeps the index small — only the unread rows are stored.
+NotificationSchema.index(
+  { user_id: 1, read_at: 1 },
+  { partialFilterExpression: { read_at: null } },
+);
+
 NotificationSchema.index(
   { dedupe_key: 1 },
   { unique: true, sparse: true },

@@ -24,24 +24,31 @@ export class NotificationService {
     senderName: string,
     preview: string,
     conversationId: string,
+    senderUserId?: string,
   ) {
     const userId = new Types.ObjectId(recipientUserId);
     const prefs = await this.getOrCreatePrefs(userId);
     if (!prefs.chat_enabled) return;
+
+    const dataEntries: Array<[string, string]> = [
+      ['type', 'chat_message'],
+      ['conversationId', conversationId],
+      ['senderName', senderName],
+    ];
+    if (senderUserId) {
+      dataEntries.push(['senderUserId', senderUserId]);
+    }
 
     const notif = await this.notifModel.create({
       user_id: userId,
       type: 'chat_message',
       title: `New message from ${senderName}`,
       body: preview,
-      data: new Map<string, string>([
-        ['type', 'chat_message'],
-        ['conversationId', conversationId],
-        ['senderName', senderName],
-      ]),
+      data: new Map<string, string>(dataEntries),
     });
 
-    await this.sendPush(userId, notif);
+    // Pass prefs through so sendPush doesn't fetch them again.
+    await this.sendPush(userId, notif, prefs);
   }
 
   async createNewProjectNotification(userId: string, projectName: string) {
@@ -64,7 +71,7 @@ export class NotificationService {
         dedupe_key: dedupeKey,
       });
 
-      await this.sendPush(uid, notif);
+      await this.sendPush(uid, notif, prefs);
     } catch (err: any) {
       if (err?.code === 11000) return; // duplicate key — already sent
       throw err;
@@ -93,7 +100,7 @@ export class NotificationService {
         dedupe_key: dedupeKey,
       });
 
-      await this.sendPush(userId, notif);
+      await this.sendPush(userId, notif, prefs);
     } catch (err: any) {
       if (err?.code === 11000) return;
       throw err;
@@ -192,9 +199,23 @@ export class NotificationService {
     return prefs;
   }
 
-  private async sendPush(userId: Types.ObjectId, notif: Notification) {
-    const prefs = await this.getOrCreatePrefs(userId);
-    if (!prefs.push_enabled) return;
+  /**
+   * Push the given notification to every active device the user has.
+   *
+   * The producer (createChat / createNewProject / createDigest) has already
+   * fetched the user's preferences to gate the *type-specific* flag
+   * (chat_enabled, new_project_enabled, daily_digest_enabled). We accept the
+   * same `prefs` here as an optional argument so we don't run a second
+   * `findOne` per notification just to read `push_enabled`. If a caller
+   * doesn't pass it (e.g. an internal admin push) we lazily fetch.
+   */
+  private async sendPush(
+    userId: Types.ObjectId,
+    notif: Notification,
+    prefs?: NotificationPreferences,
+  ) {
+    const resolvedPrefs = prefs ?? (await this.getOrCreatePrefs(userId));
+    if (!resolvedPrefs.push_enabled) return;
 
     const devices = await this.deviceModel.find({
       user_id: userId,

@@ -27,6 +27,16 @@ export class NudgeRecordItemDto {
   @IsOptional()
   @IsBoolean()
   was_suppressed?: boolean;
+
+  /**
+   * When `was_suppressed === true`, the desktop agent records why
+   * (e.g. `quiet_hours`, `aggregation_failed`, `display_failed`).
+   * Surfaced in the website's Zenno Agent stats.
+   */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  suppression_reason?: string;
 }
 
 export class SyncNudgesDto {
