@@ -14,7 +14,16 @@ const logger = new Logger('AppModule');
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      // Load the env file that matches the current NODE_ENV, then fall back to
+      // the plain `.env` so local dev keeps working without any changes.
+      // Priority (highest first): process env → .env.production / .env → defaults.
+      envFilePath: [
+        `.env.${process.env.NODE_ENV ?? 'development'}`,
+        '.env',
+      ],
+    }),
     ScheduleModule.forRoot(),
     MongooseModule.forRoot(
       process.env.MONGODB_URI!,

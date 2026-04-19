@@ -26,6 +26,21 @@ export class DigestSchedulerService {
     private readonly notificationService: NotificationService,
   ) {}
 
+  /**
+   * Send the daily digest at 8 PM local time for every opt-in user.
+   *
+   * Timezone handling:
+   * - We support fractional `timezone_offset` (India = +5.5, Nepal = +5.75,
+   *   etc.) by computing local time in milliseconds rather than rounding the
+   *   offset to whole hours.
+   * - The cron runs once per UTC hour. To survive a missed tick (e.g. a
+   *   process restart at 20:00 local), we fire whenever the local hour is in
+   *   the 20:00–23:00 window AND we haven't already sent today's digest.
+   *   `last_digest_date` is the source of truth for "already sent today".
+   * - Local date is also computed from the offset-shifted `nowUtc` so a user
+   *   in UTC+12 just past midnight UTC still gets "today's" digest tagged
+   *   with their actual local date.
+   */
   @Cron(CronExpression.EVERY_HOUR)
   async processHourlyDigests() {
     this.logger.log('Digest scheduler tick');
@@ -37,21 +52,25 @@ export class DigestSchedulerService {
     const users = await this.userModel.find({ _id: { $in: userIds } }).lean();
 
     const nowUtc = new Date();
+    const DIGEST_HOUR_LOCAL = 20; // 8 PM
+    const DIGEST_END_HOUR_LOCAL = 24; // tolerate up to (but not including) midnight
 
     for (const user of users) {
       try {
         const offsetHours = user.timezone_offset ?? 0;
-        const localHour = (nowUtc.getUTCHours() + Math.round(offsetHours) + 24) % 24;
-
-        if (localHour !== 20) continue; // Only fire at 8 PM local
-
         const localNow = new Date(nowUtc.getTime() + offsetHours * 3600000);
+        const localHour = localNow.getUTCHours();
+
+        // Only fire between 8 PM and midnight local. Catching up after the
+        // cron misses 8 PM exactly avoids skipping a day on restarts.
+        if (localHour < DIGEST_HOUR_LOCAL || localHour >= DIGEST_END_HOUR_LOCAL) continue;
+
         const localDateStr = localNow.toISOString().slice(0, 10);
 
         const pref = eligiblePrefs.find(
           (p) => p.user_id.toString() === user._id.toString(),
         );
-        if (pref?.last_digest_date === localDateStr) continue; // Already sent
+        if (pref?.last_digest_date === localDateStr) continue; // Already sent today
 
         const userId = user._id as Types.ObjectId;
         const todayStart = new Date(localDateStr + 'T00:00:00Z');

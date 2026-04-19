@@ -32,6 +32,77 @@ export class DashboardService {
    * With offset 0:  display window  = [today-6 … today],  compare = [today-13 … today-7]
    * With offset 7:  display window  = [today-13 … today-7], compare = [today-20 … today-14]
    */
+  /**
+   * Compute today's local date (midnight UTC of the user's local day) for a
+   * user. Centralised here so every range helper interprets `timezone_offset`
+   * the same way and we don't end up with two slightly-different timezone
+   * code paths.
+   */
+  private getUserLocalToday(user: User): Date {
+    if (user.timezone_offset !== undefined && user.timezone_offset !== null) {
+      const now = new Date();
+      const userLocalNow = new Date(
+        now.getTime() + user.timezone_offset * 60 * 60 * 1000,
+      );
+      return new Date(
+        Date.UTC(
+          userLocalNow.getUTCFullYear(),
+          userLocalNow.getUTCMonth(),
+          userLocalNow.getUTCDate(),
+        ),
+      );
+    }
+    const fallback = new Date();
+    fallback.setUTCHours(0, 0, 0, 0);
+    return fallback;
+  }
+
+  /**
+   * Compute a current/previous comparison window for a user.
+   *
+   * @param windowDays   Size of each window (e.g. 7 for a week, 30 for a month).
+   * @param periodOffset Number of *windows* to shift backwards. `0` is "now",
+   *                     `1` is the previous window of the same size. Defaults
+   *                     to 0.
+   *
+   * Both `getDateRangeForUser` and `getDateRangeByWindow` delegate here so the
+   * timezone math (DST, negative offsets, missing offset) stays in one place.
+   *
+   *   current  window: [today-(N·offset+N-1) … today-N·offset]
+   *   previous window: [today-(N·offset+2N-1) … today-N·offset-N)   (exclusive upper)
+   */
+  private computeRange(
+    user: User,
+    windowDays: number,
+    periodOffset = 0,
+  ): {
+    today: Date;
+    currentStart: Date;
+    previousStart: Date;
+    previousEnd: Date;
+  } {
+    const localToday = this.getUserLocalToday(user);
+
+    const today = new Date(localToday);
+    today.setUTCDate(localToday.getUTCDate() - periodOffset * windowDays);
+
+    const currentStart = new Date(today);
+    currentStart.setUTCDate(today.getUTCDate() - (windowDays - 1));
+
+    // Previous window ends the day BEFORE the current one starts.
+    const previousEnd = new Date(currentStart); // exclusive upper bound
+
+    const previousStart = new Date(currentStart);
+    previousStart.setUTCDate(currentStart.getUTCDate() - windowDays);
+
+    return { today, currentStart, previousStart, previousEnd };
+  }
+
+  /**
+   * 7-day rolling window around "today". `periodOffset = 7` rolls back one week.
+   * Kept as a thin wrapper around `computeRange` so existing callers don't need
+   * to know about the new shared helper.
+   */
   private getDateRangeForUser(
     user: User,
     periodOffset = 0,
@@ -41,33 +112,10 @@ export class DashboardService {
     previousStart: Date;
     previousEnd: Date;
   } {
-    let localToday: Date;
-    if (user.timezone_offset !== undefined && user.timezone_offset !== null) {
-      const now = new Date();
-      const userLocalNow = new Date(now.getTime() + user.timezone_offset * 60 * 60 * 1000);
-      localToday = new Date(
-        Date.UTC(
-          userLocalNow.getUTCFullYear(),
-          userLocalNow.getUTCMonth(),
-          userLocalNow.getUTCDate(),
-        ),
-      );
-    } else {
-      localToday = new Date();
-      localToday.setUTCHours(0, 0, 0, 0);
-    }
-
-    // Shift the anchor date backwards for previous-week requests.
-    const today = new Date(localToday);
-    today.setUTCDate(localToday.getUTCDate() - periodOffset);
-
-    const currentStart = new Date(today);
-    currentStart.setUTCDate(today.getUTCDate() - 6);
-    const previousStart = new Date(today);
-    previousStart.setUTCDate(today.getUTCDate() - 13);
-    const previousEnd = new Date(today);
-    previousEnd.setUTCDate(today.getUTCDate() - 7);
-    return { today, currentStart, previousStart, previousEnd };
+    // Existing callers pass `periodOffset` in *days* (0 or 7). Translate to
+    // window-multiples for `computeRange`.
+    const windowMultiples = periodOffset === 0 ? 0 : 1;
+    return this.computeRange(user, 7, windowMultiples);
   }
 
   private mapToPerformanceSummary(
@@ -206,29 +254,25 @@ export class DashboardService {
   }
 
   /**
-   * Like getDateRangeForUser but for an arbitrary window size.
-   * current  window: [today-(N-1) … today]
-   * previous window: [today-(2N-1) … today-N] (exclusive upper bound)
+   * Like {@link getDateRangeForUser} but for an arbitrary window size.
+   * Delegates to {@link computeRange} so the timezone handling stays in
+   * one place — this used to have its own subtly-different timezone path
+   * (re-using `setUTCHours` for the offset which broke on negative offsets
+   * across midnight).
+   *
+   *   current  window: [today-(N-1) … today]
+   *   previous window: [today-(2N-1) … today-N) (exclusive upper bound)
    */
   private getDateRangeByWindow(
     user: User,
     windowDays: number,
-  ): { today: Date; currentStart: Date; previousStart: Date; previousEnd: Date } {
-    const offsetHours = typeof user.timezone_offset === 'number' ? user.timezone_offset : 0;
-    const localToday = new Date();
-    if (offsetHours !== 0) localToday.setUTCHours(localToday.getUTCHours() + offsetHours);
-    localToday.setUTCHours(0, 0, 0, 0);
-    const today = new Date(localToday);
-
-    const currentStart = new Date(today);
-    currentStart.setUTCDate(today.getUTCDate() - (windowDays - 1));
-
-    const previousEnd = new Date(currentStart);   // exclusive
-
-    const previousStart = new Date(currentStart);
-    previousStart.setUTCDate(currentStart.getUTCDate() - windowDays);
-
-    return { today, currentStart, previousStart, previousEnd };
+  ): {
+    today: Date;
+    currentStart: Date;
+    previousStart: Date;
+    previousEnd: Date;
+  } {
+    return this.computeRange(user, windowDays, 0);
   }
 
   /**
@@ -331,13 +375,22 @@ export class DashboardService {
   }
 
   /**
-   * Calculate performance metrics from activity records
-   * Metrics:
-   * - avgTypingIntensity: Average typing intensity (KPM) - summed from db, divided by active days
-   * - avgMouseClickRate: Average mouse click rate (CPM) - summed from db, divided by active days
-   * - avgCorrections: Correction rate % = (total_deletions / total_estimated_keystrokes) * 100
-   *   where total_estimated_keystrokes = typing_intensity_kpm * (context_duration_minutes)
-   * - dailyActiveAverage: (total context duration in hours) / number of active days
+   * Calculate performance metrics from activity records.
+   *
+   * Both KPM (keystrokes/min) and CPM (mouse clicks/min) are stored on each
+   * activity row as a *rate*. Aggregating those rates with a plain mean would
+   * weight a 30-minute coding session the same as a 4-hour one, so we use a
+   * **duration-weighted average** instead:
+   *
+   *   weightedAvg = Σ (rate_i × duration_min_i) / Σ duration_min_i
+   *
+   * Metrics returned:
+   * - avgTypingIntensity   – duration-weighted KPM across the window.
+   * - avgMouseClickRate    – duration-weighted CPM across the window.
+   * - avgCorrections       – correction rate %
+   *                            = (total_deletions / total_estimated_keystrokes) × 100
+   *                          where total_estimated_keystrokes = Σ kpm_i × duration_min_i.
+   * - dailyActiveAverage   – (Σ active duration in hours) / number of distinct active days.
    */
   private calculateMetrics(activities: Activity[]) {
     if (activities.length === 0) {
@@ -1183,6 +1236,17 @@ export class DashboardService {
   /**
    * Typing / mouse averages weighted by context duration per day (falls back to equal weight if no context).
    */
+  /**
+   * Roll up per-day activity rows into a single project-level behavior summary.
+   *
+   * KPM (keystrokes per minute) and CPM (mouse clicks per minute) are stored
+   * on each day as a *rate*, so a naive arithmetic mean across days would
+   * weight a 30-minute coding day the same as an 8-hour one. We instead use
+   * a **duration-weighted average**: each day's rate contributes proportional
+   * to its active context duration that day. Days with zero recorded duration
+   * are skipped entirely (rather than counted as weight=1) so a `0/0`
+   * sample doesn't drag the project average toward zero.
+   */
   private aggregateProjectBehavior(activities: Activity[]): {
     avg_typing_kpm: number;
     avg_mouse_cpm: number;
@@ -1206,10 +1270,13 @@ export class DashboardService {
           dayCtxSec += this.coerceSeconds(d);
         }
       }
-      const w = dayCtxSec > 0 ? dayCtxSec : 1;
-      weight += w;
-      wTyping += (act.behavior?.typing_intensity_kpm || 0) * w;
-      wMouse += (act.behavior?.mouse_click_rate_cpm || 0) * w;
+      // Skip days with no recorded active duration: their rate is undefined
+      // (zero seconds → 0 events). Counting them as weight=1 used to skew the
+      // project average toward zero on idle days.
+      if (dayCtxSec <= 0) continue;
+      weight += dayCtxSec;
+      wTyping += (act.behavior?.typing_intensity_kpm || 0) * dayCtxSec;
+      wMouse += (act.behavior?.mouse_click_rate_cpm || 0) * dayCtxSec;
     }
 
     const r = (n: number) => Math.round(n * 100) / 100;

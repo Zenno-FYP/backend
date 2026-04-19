@@ -44,8 +44,8 @@ export class PeersService {
 
     const maxScan = 200;
     const others = await this.userModel
-      .find({ _id: { $ne: me._id as Types.ObjectId } })
-      .select('name profilePhoto description')
+      .find({ _id: { $ne: me._id as Types.ObjectId }, isVerified: true })
+      .select('name profilePhoto description isVerified')
       .limit(maxScan)
       .sort({ name: 1 })
       .lean();
