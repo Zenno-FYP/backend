@@ -1,18 +1,21 @@
 import { Module, Logger } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ScheduleModule } from '@nestjs/schedule';
 import { UserModule } from './modules/user/user.module';
 import { FirebaseModule } from './firebase/firebase.module';
 import { ActivityModule } from './modules/activity/activity.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { AgentModule } from './modules/agent/agent.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 const logger = new Logger('AppModule');
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     MongooseModule.forRoot(
       process.env.MONGODB_URI!,
       {
@@ -33,6 +36,7 @@ const logger = new Logger('AppModule');
     DashboardModule,
     ChatModule,
     AgentModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

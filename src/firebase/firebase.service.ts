@@ -58,4 +58,46 @@ export class FirebaseService implements OnModuleInit {
   async verifyToken(token: string): Promise<admin.auth.DecodedIdToken> {
     return this.auth.verifyIdToken(token);
   }
+
+  async sendMulticastPush(
+    tokens: string[],
+    notification: { title: string; body: string },
+    data: Record<string, string>,
+  ): Promise<{ successCount: number; failedTokens: string[] }> {
+    if (!tokens.length) {
+      return { successCount: 0, failedTokens: [] };
+    }
+
+    try {
+      const response = await admin.messaging().sendEachForMulticast({
+        tokens,
+        notification,
+        data,
+        android: { priority: 'high' },
+        webpush: {
+          headers: { Urgency: 'high' },
+          notification: { icon: '/icon-192.png' },
+        },
+      });
+
+      const failedTokens: string[] = [];
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          const code = resp.error?.code;
+          if (
+            code === 'messaging/registration-token-not-registered' ||
+            code === 'messaging/invalid-registration-token'
+          ) {
+            failedTokens.push(tokens[idx]);
+          }
+          this.logger.warn(`FCM send failed for token[${idx}]: ${resp.error?.message}`);
+        }
+      });
+
+      return { successCount: response.successCount, failedTokens };
+    } catch (error) {
+      this.logger.error('FCM multicast send failed', error);
+      return { successCount: 0, failedTokens: [] };
+    }
+  }
 }
