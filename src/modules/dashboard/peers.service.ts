@@ -45,7 +45,7 @@ export class PeersService {
     const maxScan = 200;
     const others = await this.userModel
       .find({ _id: { $ne: me._id as Types.ObjectId }, isVerified: true })
-      .select('name profilePhoto description isVerified')
+      .select('name profilePhoto description isVerified profile_preferences')
       .limit(maxScan)
       .sort({ name: 1 })
       .lean();
@@ -103,43 +103,63 @@ export class PeersService {
     for (const u of others) {
       const uid = String(u._id);
       const projects = projectsByUser.get(uid) || [];
+
+      // Honour the developer's own privacy choices: anything they marked
+      // hidden on their profile must NOT leak through the peer card. We
+      // intentionally use Sets for O(1) lookups inside the inner loops.
+      const prefs = u.profile_preferences;
+      const hiddenSkillNames = new Set<string>(prefs?.hidden_skill_names ?? []);
+      const hiddenAppNames = new Set<string>(prefs?.hidden_app_names ?? []);
+      const hiddenProjectNames = new Set<string>(prefs?.hidden_project_names ?? []);
+
       const skillSec = new Map<string, number>();
       const projectLabels: string[] = [];
-
       const projectTextForSearch: string[] = [];
+
       for (const p of projects) {
-        projectLabels.push(p.project_name);
-        if (p.display_name?.trim()) {
-          projectLabels.push(p.display_name.trim());
+        // Hidden projects must contribute neither a card label NOR their
+        // skills — those skills would otherwise show up in `top_skills`
+        // even though the developer chose to hide the underlying project.
+        if (hiddenProjectNames.has(p.project_name)) {
+          continue;
         }
+        const display = p.display_name?.trim();
+        projectLabels.push(display && display.length > 0 ? display : p.project_name);
         if (p.description?.trim()) {
           projectTextForSearch.push(p.description.trim());
         }
         for (const s of p.project_skills || []) {
           const n = (s.skill_name || '').trim();
-          if (!n) {
+          if (!n || hiddenSkillNames.has(n)) {
             continue;
           }
           skillSec.set(n, (skillSec.get(n) || 0) + this.coerceSeconds(s.duration_sec));
         }
       }
 
+      // Cap each section at 4 — keeps the peer card compact (matches
+      // the website + mobile design) and avoids dumping every single
+      // tag a developer has ever recorded.
+      const peerCardLimit = 4;
+
       const top_skills = Array.from(skillSec.entries())
         .filter(([, sec]) => sec > 0)
         .sort((a, b) => b[1] - a[1])
-        .slice(0, 8)
+        .slice(0, peerCardLimit)
         .map(([name]) => name);
 
       const appMap = appTotalsByUser.get(uid);
       const top_apps = appMap
         ? Array.from(appMap.entries())
-            .filter(([, sec]) => sec > 0)
+            .filter(([name, sec]) => sec > 0 && !hiddenAppNames.has(name))
             .sort((a, b) => b[1] - a[1])
-            .slice(0, 8)
+            .slice(0, peerCardLimit)
             .map(([name]) => name)
         : [];
 
-      const uniqueProjects = Array.from(new Set(projectLabels)).slice(0, 8);
+      // De-dup *after* filtering so a project hidden under one of its
+      // labels doesn't accidentally come back via the other one.
+      const uniqueProjects = Array.from(new Set(projectLabels)).slice(0, peerCardLimit);
       const bio = (u.description || '').trim();
 
       const searchable = [
@@ -166,7 +186,7 @@ export class PeersService {
         profile_photo_url: u.profilePhoto ?? null,
         bio: bio.slice(0, 220),
         top_skills,
-        top_projects: uniqueProjects.slice(0, 6),
+        top_projects: uniqueProjects,
         top_apps,
       });
     }
