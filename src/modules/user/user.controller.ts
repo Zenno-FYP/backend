@@ -15,6 +15,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { UserService } from './user.service';
 import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
+import { AllowUnverified } from '../auth/decorators/allow-unverified.decorator';
 import { RegisterUpdateDto } from '../auth/dto/register.dto';
 import { PatchProfileDto } from './dto/patch-profile.dto';
 
@@ -42,6 +43,7 @@ export class UserController {
   @Put('me')
   @ApiBearerAuth()
   @UseGuards(FirebaseAuthGuard)
+  @AllowUnverified()
   @UseInterceptors(FileInterceptor('profilePhoto'))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Create current user profile (first time only)' })

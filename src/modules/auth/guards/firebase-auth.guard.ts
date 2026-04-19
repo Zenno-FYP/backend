@@ -1,11 +1,16 @@
 import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, Logger } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { FirebaseService } from '../../../firebase/firebase.service';
+import { ALLOW_UNVERIFIED_KEY } from '../decorators/allow-unverified.decorator';
 
 @Injectable()
 export class FirebaseAuthGuard implements CanActivate {
   private readonly logger = new Logger(FirebaseAuthGuard.name);
 
-  constructor(private firebaseService: FirebaseService) {}
+  constructor(
+    private firebaseService: FirebaseService,
+    private reflector: Reflector,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
@@ -29,25 +34,39 @@ export class FirebaseAuthGuard implements CanActivate {
     try {
       const decodedToken = await this.firebaseService.verifyToken(token);
 
-      // Defense-in-depth: reject password-provider tokens whose email has
-      // not yet been verified. The mobile/web clients already gate this
-      // client-side, but a tampered or out-of-date client could still send
-      // an unverified password token. Federated providers (google.com,
-      // github.com, apple.com, etc.) get a free pass because the IdP has
-      // already verified the email.
+      // Defense-in-depth: reject password-provider tokens whose email has not
+      // yet been verified. Federated providers (google.com, github.com, etc.)
+      // are exempt because the IdP has already verified the email.
+      //
+      // Exception: routes decorated with @AllowUnverified() are permitted to
+      // receive unverified tokens. This is intentionally narrow — only
+      // PUT /user/me (initial profile creation) carries that decorator, so a
+      // brand-new user can create their MongoDB record before verifying email.
       const signInProvider: string | undefined =
         decodedToken?.firebase?.sign_in_provider;
+
       if (
         signInProvider === 'password' &&
         decodedToken?.email_verified === false
       ) {
-        this.logger.warn(
-          `Rejecting unverified password token for ${request.method} ${request.url} (uid=${decodedToken?.uid ?? 'unknown'})`,
+        const allowUnverified = this.reflector.getAllAndOverride<boolean>(
+          ALLOW_UNVERIFIED_KEY,
+          [context.getHandler(), context.getClass()],
         );
-        throw new UnauthorizedException({
-          code: 'AUTH_EMAIL_NOT_VERIFIED',
-          message: 'Email is not verified',
-        });
+
+        if (!allowUnverified) {
+          this.logger.warn(
+            `Rejecting unverified password token for ${request.method} ${request.url} (uid=${decodedToken?.uid ?? 'unknown'})`,
+          );
+          throw new UnauthorizedException({
+            code: 'AUTH_EMAIL_NOT_VERIFIED',
+            message: 'Email is not verified',
+          });
+        }
+
+        this.logger.debug(
+          `Allowing unverified token on @AllowUnverified route ${request.method} ${request.url}`,
+        );
       }
 
       request.user = decodedToken;
