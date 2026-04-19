@@ -68,12 +68,47 @@ export class FirebaseService implements OnModuleInit {
       return { successCount: 0, failedTokens: [] };
     }
 
+    // Mirror the title/body into the data payload too. The mobile
+    // foreground handler used to silently no-op when `RemoteMessage.notification`
+    // came back null (some Android OEMs strip it for high-priority data
+    // pushes); duplicating into `data` guarantees the local notification
+    // can always render even in that edge case.
+    const dataWithFallback: Record<string, string> = {
+      ...data,
+      title: notification.title,
+      body: notification.body,
+    };
+
     try {
       const response = await admin.messaging().sendEachForMulticast({
         tokens,
         notification,
-        data,
-        android: { priority: 'high' },
+        data: dataWithFallback,
+        android: {
+          priority: 'high',
+          // Pin the channel id, sound and visibility on the Admin SDK side
+          // so background pushes (which Android renders directly without the
+          // app being awake) land on the same heads-up channel as the
+          // in-app local notification — matching the channel created by
+          // FcmService and registered in AndroidManifest.xml as
+          // `com.google.firebase.messaging.default_notification_channel_id`.
+          notification: {
+            channelId: 'zenno_notifications',
+            sound: 'default',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            priority: 'max',
+            visibility: 'public',
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default',
+              contentAvailable: true,
+            },
+          },
+        },
         webpush: {
           headers: { Urgency: 'high' },
           notification: { icon: '/icon-192.png' },
@@ -93,6 +128,11 @@ export class FirebaseService implements OnModuleInit {
           this.logger.warn(`FCM send failed for token[${idx}]: ${resp.error?.message}`);
         }
       });
+
+      this.logger.log(
+        `FCM push sent: ${response.successCount}/${tokens.length} ok` +
+          (failedTokens.length ? `, ${failedTokens.length} stale token(s) will be purged` : ''),
+      );
 
       return { successCount: response.successCount, failedTokens };
     } catch (error) {
