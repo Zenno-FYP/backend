@@ -129,4 +129,18 @@ export class NotificationController {
     const prefs = await this.notificationService.updatePreferences(userId, dto);
     return { data: prefs };
   }
+
+  /**
+   * Self-test endpoint: fire a real FCM push to every device the
+   * authenticated user has registered, plus drop a row into the
+   * in-app notifications list. Surfaced from the mobile Settings
+   * sheet so users (and us during QA) can verify push delivery
+   * without having to wait on a peer to send a chat message.
+   */
+  @Post('test')
+  async sendTest(@Req() req: any) {
+    const userId = await this.getUserId(req);
+    const result = await this.notificationService.sendTestNotification(userId);
+    return { data: result };
+  }
 }

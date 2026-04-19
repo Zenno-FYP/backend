@@ -128,6 +128,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const senderUser = await this.userModel.findById((client.data as { mongoUserId: string }).mongoUserId);
       const senderName = senderUser?.name ?? 'Someone';
+      // Fire-and-forget — never block the WebSocket ack on push delivery.
+      // Log with stack so the failure mode (chat_enabled off, no devices,
+      // FCM error, ...) is visible. Previously this was a one-line warn
+      // that hid the cause, which made "follow-up messages don't notify"
+      // bugs nearly impossible to diagnose.
       this.notificationService
         .createChatNotification(
           saved.recipientMongoId,
@@ -136,7 +141,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           saved.conversationId,
           (client.data as { mongoUserId: string }).mongoUserId,
         )
-        .catch((e) => this.logger.warn('Chat notification error', e));
+        .catch((e) =>
+          this.logger.error(
+            `createChatNotification failed for recipient=${saved.recipientMongoId} conv=${saved.conversationId}: ${
+              e?.message ?? e
+            }`,
+            e?.stack,
+          ),
+        );
 
       return { ok: true, message: saved.message };
     } catch (e: any) {
