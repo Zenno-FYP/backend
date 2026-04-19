@@ -15,6 +15,7 @@ import { Server, Socket } from 'socket.io';
 import { FirebaseService } from '../../firebase/firebase.service';
 import { User } from '../user/schemas/user.schema';
 import { ChatService } from './chat.service';
+import { NotificationService } from '../notifications/notification.service';
 import { MarkReadWsDto, SendMessageWsDto } from './dto/chat-rest.dto';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
@@ -33,6 +34,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly chatService: ChatService,
     private readonly firebaseService: FirebaseService,
+    private readonly notificationService: NotificationService,
     @InjectModel(User.name) private readonly userModel: Model<User>,
   ) {}
 
@@ -98,6 +100,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
       this.server.to(`user:${saved.recipientMongoId}`).emit('chat:new_message', payload);
       this.server.to(`user:${(client.data as { mongoUserId: string }).mongoUserId}`).emit('chat:new_message', payload);
+
+      const senderUser = await this.userModel.findById((client.data as { mongoUserId: string }).mongoUserId);
+      const senderName = senderUser?.name ?? 'Someone';
+      this.notificationService
+        .createChatNotification(saved.recipientMongoId, senderName, dto.text.slice(0, 80), saved.conversationId)
+        .catch((e) => this.logger.warn('Chat notification error', e));
+
       return { ok: true, message: saved.message };
     } catch (e: any) {
       const msg = e?.response?.message || e?.message || 'Send failed';

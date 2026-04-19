@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ActivityService } from './activity.service';
 import { ActivityController } from './activity.controller';
@@ -6,6 +6,7 @@ import { Activity, ActivitySchema } from './schemas/activity.schema';
 import { Project, ProjectSchema } from './schemas/project.schema';
 import { User, UserSchema } from '../user/schemas/user.schema';
 import { FirebaseModule } from '../../firebase/firebase.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { FirebaseModule } from '../../firebase/firebase.module';
       { name: User.name, schema: UserSchema },
     ]),
     FirebaseModule,
+    forwardRef(() => NotificationsModule),
   ],
   controllers: [ActivityController],
   providers: [ActivityService],
