@@ -28,7 +28,18 @@ import { parseCorsOrigins } from '../../common/cors-origins';
   // Calling parseCorsOrigins() directly in the decorator would evaluate
   // at class-load time, before NestJS bootstraps, so env vars aren't set yet.
   cors: {
-    origin: (origin: string, cb: (err: Error | null, allow?: boolean) => void) => {
+    origin: (
+      origin: string | undefined,
+      cb: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      // Native clients (mobile app, server-to-server, curl, Postman) do not
+      // send an Origin header. The CORS spec only applies to browsers, so
+      // skipping the allowlist for missing origins is safe and matches the
+      // behaviour of the official `cors` middleware used on the HTTP side.
+      if (!origin) {
+        cb(null, true);
+        return;
+      }
       const allowed = parseCorsOrigins();
       if (allowed === true || (Array.isArray(allowed) && allowed.includes(origin))) {
         cb(null, true);
