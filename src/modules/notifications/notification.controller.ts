@@ -9,6 +9,8 @@ import {
   Query,
   Req,
   UseGuards,
+  Logger,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
@@ -25,6 +27,8 @@ import {
 @Controller('api/v1/notifications')
 @UseGuards(FirebaseAuthGuard)
 export class NotificationController {
+  private readonly logger = new Logger(NotificationController.name);
+
   constructor(
     private readonly notificationService: NotificationService,
     @InjectModel(User.name) private readonly userModel: Model<User>,
@@ -140,7 +144,21 @@ export class NotificationController {
   @Post('test')
   async sendTest(@Req() req: any) {
     const userId = await this.getUserId(req);
-    const result = await this.notificationService.sendTestNotification(userId);
-    return { data: result };
+    try {
+      const result =
+        await this.notificationService.sendTestNotification(userId);
+      return { data: result };
+    } catch (e: any) {
+      // Surface the real cause to the server log instead of letting Nest
+      // hide it behind a generic "Internal server error" — the test
+      // endpoint is exactly where we need diagnostic clarity.
+      this.logger.error(
+        `sendTestNotification failed for user=${userId.toString()}: ${e?.message ?? e}`,
+        e?.stack,
+      );
+      throw new InternalServerErrorException(
+        e?.message ?? 'sendTestNotification failed',
+      );
+    }
   }
 }
