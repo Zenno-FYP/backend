@@ -48,6 +48,7 @@ export class AgentService {
     total_nudges: number;
     today_nudges: number;
     this_week_nudges: number;
+    total_suppressed: number;
   }> {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -55,7 +56,7 @@ export class AgentService {
     const weekStart = new Date(todayStart);
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
 
-    const [total, today, thisWeek] = await Promise.all([
+    const [total, today, thisWeek, suppressed] = await Promise.all([
       this.nudgeModel.countDocuments({ user_id: userId, was_suppressed: false }),
       this.nudgeModel.countDocuments({
         user_id: userId,
@@ -67,12 +68,14 @@ export class AgentService {
         was_suppressed: false,
         generated_at: { $gte: weekStart },
       }),
+      this.nudgeModel.countDocuments({ user_id: userId, was_suppressed: true }),
     ]);
 
     return {
       total_nudges: total,
       today_nudges: today,
       this_week_nudges: thisWeek,
+      total_suppressed: suppressed,
     };
   }
 

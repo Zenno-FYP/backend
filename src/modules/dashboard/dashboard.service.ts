@@ -349,46 +349,45 @@ export class DashboardService {
       };
     }
 
-    let totalTypingIntensity = 0;
-    let totalMouseClickRate = 0;
     let totalDeletionKeyPresses = 0;
-    let totalEstimatedKeystrokes = 0;
+    // Duration-weighted totals: sum(rate * duration_min) for correct weighted average
+    let totalEstimatedKeystrokes = 0;   // sum(kpm_i * duration_min_i)
+    let totalEstimatedClicks = 0;       // sum(cpm_i * duration_min_i)
     let totalDurationSeconds = 0;
     const activeDays = new Set<string>();
 
     for (const activity of activities) {
-      const typingIntensity = activity.behavior?.typing_intensity_kpm || 0;
-      totalTypingIntensity += typingIntensity;
-      totalMouseClickRate += activity.behavior?.mouse_click_rate_cpm || 0;
+      const kpm = activity.behavior?.typing_intensity_kpm || 0;
+      const cpm = activity.behavior?.mouse_click_rate_cpm || 0;
       totalDeletionKeyPresses += activity.behavior?.total_deletion_key_presses || 0;
       activeDays.add(activity.date.toISOString().split('T')[0]);
 
-      // Calculate context duration for this activity to estimate keystrokes
-      let activityDurationSeconds = 0;
-      if (activity.context) {
-        const contextEntries = activity.context instanceof Map
-          ? Array.from(activity.context.values())
-          : Object.values(activity.context);
+      // Derive total active seconds for this activity.
+      // Try context first (most accurate), then fall back to apps, then languages.
+      const activityDurationSeconds = this.getActivityDurationSeconds(activity);
+      totalDurationSeconds += activityDurationSeconds;
 
-        for (const duration of contextEntries) {
-          const durationSec = (duration as number) || 0;
-          activityDurationSeconds += durationSec;
-          totalDurationSeconds += durationSec;
-        }
-      }
-
-      // Estimate keystrokes for this activity: KPM * (duration in minutes)
+      // Duration-weighted contribution: rate × minutes active on this project
       const activityDurationMinutes = activityDurationSeconds / 60;
-      const estimatedKeystrokes = typingIntensity * activityDurationMinutes;
-      totalEstimatedKeystrokes += estimatedKeystrokes;
+      totalEstimatedKeystrokes += kpm * activityDurationMinutes;
+      totalEstimatedClicks += cpm * activityDurationMinutes;
     }
 
+    const totalDurationMinutes = totalDurationSeconds / 60;
     const totalDurationHours = totalDurationSeconds / 3600;
     const activeDaysCount = activeDays.size || 1;
     const dailyActiveAverage = totalDurationHours / activeDaysCount;
 
-    const avgTypingIntensity = Math.round((totalTypingIntensity / activeDaysCount) * 10) / 10;
-    const avgMouseClickRate = Math.round((totalMouseClickRate / activeDaysCount) * 10) / 10;
+    // Weighted-average KPM and CPM: total strokes (or clicks) / total active minutes
+    // This correctly handles multiple projects per day without inflating the rate.
+    const avgTypingIntensity =
+      totalDurationMinutes > 0
+        ? Math.round((totalEstimatedKeystrokes / totalDurationMinutes) * 10) / 10
+        : 0;
+    const avgMouseClickRate =
+      totalDurationMinutes > 0
+        ? Math.round((totalEstimatedClicks / totalDurationMinutes) * 10) / 10
+        : 0;
 
     // Correction rate: (total deletions / total estimated keystrokes) * 100
     const correctionRate =
@@ -402,6 +401,31 @@ export class DashboardService {
       avgCorrections: correctionRate,
       dailyActiveAverage,
     };
+  }
+
+  /**
+   * Sum all values in a Mongoose Map or plain object, returning total seconds.
+   * Returns 0 if the map is absent or empty.
+   */
+  private sumMapValues(map: Map<string, number> | Record<string, number> | any): number {
+    if (!map) return 0;
+    const values: number[] = map instanceof Map
+      ? Array.from(map.values())
+      : Object.values(map);
+    return values.reduce((sum, v) => sum + ((v as number) || 0), 0);
+  }
+
+  /**
+   * Derive total active seconds for one Activity document.
+   * Priority: context → apps → languages (all represent the same wall-clock time,
+   * just categorised differently; use the first non-zero source).
+   */
+  private getActivityDurationSeconds(activity: Activity): number {
+    const fromContext = this.sumMapValues(activity.context);
+    if (fromContext > 0) return fromContext;
+    const fromApps = this.sumMapValues(activity.apps);
+    if (fromApps > 0) return fromApps;
+    return this.sumMapValues(activity.languages);
   }
 
   /**
@@ -502,44 +526,36 @@ export class DashboardService {
         continue;
       }
 
-      let sumKpm = 0;
-      let sumCpm = 0;
       let totalIdleSec = 0;
       let totalDel = 0;
       let totalMouse = 0;
-      let totalCtxSec = 0;
-      let totalEstKs = 0;
+      let totalDurSec = 0;
+      let totalEstKs = 0;   // sum(kpm * duration_min)
+      let totalEstClicks = 0; // sum(cpm * duration_min)
 
       for (const act of dayActivities) {
         const kpm = act.behavior?.typing_intensity_kpm || 0;
         const cpm = act.behavior?.mouse_click_rate_cpm || 0;
-        sumKpm += kpm;
-        sumCpm += cpm;
         totalIdleSec += act.behavior?.total_idle_sec || 0;
         totalDel += act.behavior?.total_deletion_key_presses || 0;
         totalMouse += act.behavior?.total_mouse_movement_distance || 0;
 
-        let activityDurationSeconds = 0;
-        if (act.context) {
-          const vals =
-            act.context instanceof Map
-              ? Array.from(act.context.values())
-              : Object.values(act.context);
-          for (const duration of vals) {
-            activityDurationSeconds += (duration as number) || 0;
-          }
-        }
-        totalCtxSec += activityDurationSeconds;
-        const activityDurationMinutes = activityDurationSeconds / 60;
-        totalEstKs += kpm * activityDurationMinutes;
+        const actDurSec = this.getActivityDurationSeconds(act);
+        totalDurSec += actDurSec;
+        const actDurMin = actDurSec / 60;
+        totalEstKs += kpm * actDurMin;
+        totalEstClicks += cpm * actDurMin;
       }
 
-      const n = dayActivities.length;
-      const avgKpm = Math.round((sumKpm / n) * 100) / 100;
-      const avgCpm = Math.round((sumCpm / n) * 100) / 100;
+      const totalDurMin = totalDurSec / 60;
+      // Duration-weighted average: total strokes / total minutes (no per-project inflation)
+      const avgKpm =
+        totalDurMin > 0 ? Math.round((totalEstKs / totalDurMin) * 100) / 100 : 0;
+      const avgCpm =
+        totalDurMin > 0 ? Math.round((totalEstClicks / totalDurMin) * 100) / 100 : 0;
       const correction =
         totalEstKs > 0 ? Math.round((totalDel / totalEstKs) * 1000) / 10 : 0;
-      const activeHours = Math.round((totalCtxSec / 3600) * 100) / 100;
+      const activeHours = Math.round((totalDurSec / 3600) * 100) / 100;
       const idleHours = Math.round((totalIdleSec / 3600) * 100) / 100;
 
       result.push({
