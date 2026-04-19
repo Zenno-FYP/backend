@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { FirebaseModule } from '../../firebase/firebase.module';
 import { User, UserSchema } from '../user/schemas/user.schema';
@@ -7,6 +7,7 @@ import { ChatGateway } from './chat.gateway';
 import { ChatService } from './chat.service';
 import { ChatMessage, ChatMessageSchema } from './schemas/chat-message.schema';
 import { Conversation, ConversationSchema } from './schemas/conversation.schema';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { Conversation, ConversationSchema } from './schemas/conversation.schema'
       { name: ChatMessage.name, schema: ChatMessageSchema },
     ]),
     FirebaseModule,
+    forwardRef(() => NotificationsModule),
   ],
   controllers: [ChatController],
   providers: [ChatService, ChatGateway],

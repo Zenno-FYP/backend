@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, ClientSession, Types } from 'mongoose';
 import { Activity } from './schemas/activity.schema';
@@ -8,13 +8,18 @@ import {
   ProjectSyncDto,
   SyncActivityDto,
 } from './dto/sync-activity.dto';
+import { NotificationService } from '../notifications/notification.service';
 
 @Injectable()
 export class ActivityService {
+  private readonly logger = new Logger(ActivityService.name);
+
   constructor(
     @InjectModel(Activity.name) private activityModel: Model<Activity>,
     @InjectModel(Project.name) private projectModel: Model<Project>,
     @InjectModel(User.name) private userModel: Model<User>,
+    @Inject(forwardRef(() => NotificationService))
+    private readonly notificationService: NotificationService,
   ) {}
 
   /**
@@ -164,6 +169,9 @@ export class ActivityService {
     // Only set first_seen_at if project is NEW (doesn't exist yet)
     if (!existingProject) {
       update.$set.first_seen_at = firstSeenAtStr;
+      this.notificationService
+        .createNewProjectNotification(userId.toString(), bucket.project_name)
+        .catch((e) => this.logger.warn('Project notification error', e));
     }
 
     await this.projectModel.findOneAndUpdate(

@@ -32,6 +32,77 @@ export class DashboardService {
    * With offset 0:  display window  = [today-6 … today],  compare = [today-13 … today-7]
    * With offset 7:  display window  = [today-13 … today-7], compare = [today-20 … today-14]
    */
+  /**
+   * Compute today's local date (midnight UTC of the user's local day) for a
+   * user. Centralised here so every range helper interprets `timezone_offset`
+   * the same way and we don't end up with two slightly-different timezone
+   * code paths.
+   */
+  private getUserLocalToday(user: User): Date {
+    if (user.timezone_offset !== undefined && user.timezone_offset !== null) {
+      const now = new Date();
+      const userLocalNow = new Date(
+        now.getTime() + user.timezone_offset * 60 * 60 * 1000,
+      );
+      return new Date(
+        Date.UTC(
+          userLocalNow.getUTCFullYear(),
+          userLocalNow.getUTCMonth(),
+          userLocalNow.getUTCDate(),
+        ),
+      );
+    }
+    const fallback = new Date();
+    fallback.setUTCHours(0, 0, 0, 0);
+    return fallback;
+  }
+
+  /**
+   * Compute a current/previous comparison window for a user.
+   *
+   * @param windowDays   Size of each window (e.g. 7 for a week, 30 for a month).
+   * @param periodOffset Number of *windows* to shift backwards. `0` is "now",
+   *                     `1` is the previous window of the same size. Defaults
+   *                     to 0.
+   *
+   * Both `getDateRangeForUser` and `getDateRangeByWindow` delegate here so the
+   * timezone math (DST, negative offsets, missing offset) stays in one place.
+   *
+   *   current  window: [today-(N·offset+N-1) … today-N·offset]
+   *   previous window: [today-(N·offset+2N-1) … today-N·offset-N)   (exclusive upper)
+   */
+  private computeRange(
+    user: User,
+    windowDays: number,
+    periodOffset = 0,
+  ): {
+    today: Date;
+    currentStart: Date;
+    previousStart: Date;
+    previousEnd: Date;
+  } {
+    const localToday = this.getUserLocalToday(user);
+
+    const today = new Date(localToday);
+    today.setUTCDate(localToday.getUTCDate() - periodOffset * windowDays);
+
+    const currentStart = new Date(today);
+    currentStart.setUTCDate(today.getUTCDate() - (windowDays - 1));
+
+    // Previous window ends the day BEFORE the current one starts.
+    const previousEnd = new Date(currentStart); // exclusive upper bound
+
+    const previousStart = new Date(currentStart);
+    previousStart.setUTCDate(currentStart.getUTCDate() - windowDays);
+
+    return { today, currentStart, previousStart, previousEnd };
+  }
+
+  /**
+   * 7-day rolling window around "today". `periodOffset = 7` rolls back one week.
+   * Kept as a thin wrapper around `computeRange` so existing callers don't need
+   * to know about the new shared helper.
+   */
   private getDateRangeForUser(
     user: User,
     periodOffset = 0,
@@ -41,33 +112,10 @@ export class DashboardService {
     previousStart: Date;
     previousEnd: Date;
   } {
-    let localToday: Date;
-    if (user.timezone_offset !== undefined && user.timezone_offset !== null) {
-      const now = new Date();
-      const userLocalNow = new Date(now.getTime() + user.timezone_offset * 60 * 60 * 1000);
-      localToday = new Date(
-        Date.UTC(
-          userLocalNow.getUTCFullYear(),
-          userLocalNow.getUTCMonth(),
-          userLocalNow.getUTCDate(),
-        ),
-      );
-    } else {
-      localToday = new Date();
-      localToday.setUTCHours(0, 0, 0, 0);
-    }
-
-    // Shift the anchor date backwards for previous-week requests.
-    const today = new Date(localToday);
-    today.setUTCDate(localToday.getUTCDate() - periodOffset);
-
-    const currentStart = new Date(today);
-    currentStart.setUTCDate(today.getUTCDate() - 6);
-    const previousStart = new Date(today);
-    previousStart.setUTCDate(today.getUTCDate() - 13);
-    const previousEnd = new Date(today);
-    previousEnd.setUTCDate(today.getUTCDate() - 7);
-    return { today, currentStart, previousStart, previousEnd };
+    // Existing callers pass `periodOffset` in *days* (0 or 7). Translate to
+    // window-multiples for `computeRange`.
+    const windowMultiples = periodOffset === 0 ? 0 : 1;
+    return this.computeRange(user, 7, windowMultiples);
   }
 
   private mapToPerformanceSummary(
@@ -206,29 +254,25 @@ export class DashboardService {
   }
 
   /**
-   * Like getDateRangeForUser but for an arbitrary window size.
-   * current  window: [today-(N-1) … today]
-   * previous window: [today-(2N-1) … today-N] (exclusive upper bound)
+   * Like {@link getDateRangeForUser} but for an arbitrary window size.
+   * Delegates to {@link computeRange} so the timezone handling stays in
+   * one place — this used to have its own subtly-different timezone path
+   * (re-using `setUTCHours` for the offset which broke on negative offsets
+   * across midnight).
+   *
+   *   current  window: [today-(N-1) … today]
+   *   previous window: [today-(2N-1) … today-N) (exclusive upper bound)
    */
   private getDateRangeByWindow(
     user: User,
     windowDays: number,
-  ): { today: Date; currentStart: Date; previousStart: Date; previousEnd: Date } {
-    const offsetHours = typeof user.timezone_offset === 'number' ? user.timezone_offset : 0;
-    const localToday = new Date();
-    if (offsetHours !== 0) localToday.setUTCHours(localToday.getUTCHours() + offsetHours);
-    localToday.setUTCHours(0, 0, 0, 0);
-    const today = new Date(localToday);
-
-    const currentStart = new Date(today);
-    currentStart.setUTCDate(today.getUTCDate() - (windowDays - 1));
-
-    const previousEnd = new Date(currentStart);   // exclusive
-
-    const previousStart = new Date(currentStart);
-    previousStart.setUTCDate(currentStart.getUTCDate() - windowDays);
-
-    return { today, currentStart, previousStart, previousEnd };
+  ): {
+    today: Date;
+    currentStart: Date;
+    previousStart: Date;
+    previousEnd: Date;
+  } {
+    return this.computeRange(user, windowDays, 0);
   }
 
   /**
@@ -331,13 +375,22 @@ export class DashboardService {
   }
 
   /**
-   * Calculate performance metrics from activity records
-   * Metrics:
-   * - avgTypingIntensity: Average typing intensity (KPM) - summed from db, divided by active days
-   * - avgMouseClickRate: Average mouse click rate (CPM) - summed from db, divided by active days
-   * - avgCorrections: Correction rate % = (total_deletions / total_estimated_keystrokes) * 100
-   *   where total_estimated_keystrokes = typing_intensity_kpm * (context_duration_minutes)
-   * - dailyActiveAverage: (total context duration in hours) / number of active days
+   * Calculate performance metrics from activity records.
+   *
+   * Both KPM (keystrokes/min) and CPM (mouse clicks/min) are stored on each
+   * activity row as a *rate*. Aggregating those rates with a plain mean would
+   * weight a 30-minute coding session the same as a 4-hour one, so we use a
+   * **duration-weighted average** instead:
+   *
+   *   weightedAvg = Σ (rate_i × duration_min_i) / Σ duration_min_i
+   *
+   * Metrics returned:
+   * - avgTypingIntensity   – duration-weighted KPM across the window.
+   * - avgMouseClickRate    – duration-weighted CPM across the window.
+   * - avgCorrections       – correction rate %
+   *                            = (total_deletions / total_estimated_keystrokes) × 100
+   *                          where total_estimated_keystrokes = Σ kpm_i × duration_min_i.
+   * - dailyActiveAverage   – (Σ active duration in hours) / number of distinct active days.
    */
   private calculateMetrics(activities: Activity[]) {
     if (activities.length === 0) {
@@ -349,46 +402,45 @@ export class DashboardService {
       };
     }
 
-    let totalTypingIntensity = 0;
-    let totalMouseClickRate = 0;
     let totalDeletionKeyPresses = 0;
-    let totalEstimatedKeystrokes = 0;
+    // Duration-weighted totals: sum(rate * duration_min) for correct weighted average
+    let totalEstimatedKeystrokes = 0;   // sum(kpm_i * duration_min_i)
+    let totalEstimatedClicks = 0;       // sum(cpm_i * duration_min_i)
     let totalDurationSeconds = 0;
     const activeDays = new Set<string>();
 
     for (const activity of activities) {
-      const typingIntensity = activity.behavior?.typing_intensity_kpm || 0;
-      totalTypingIntensity += typingIntensity;
-      totalMouseClickRate += activity.behavior?.mouse_click_rate_cpm || 0;
+      const kpm = activity.behavior?.typing_intensity_kpm || 0;
+      const cpm = activity.behavior?.mouse_click_rate_cpm || 0;
       totalDeletionKeyPresses += activity.behavior?.total_deletion_key_presses || 0;
       activeDays.add(activity.date.toISOString().split('T')[0]);
 
-      // Calculate context duration for this activity to estimate keystrokes
-      let activityDurationSeconds = 0;
-      if (activity.context) {
-        const contextEntries = activity.context instanceof Map
-          ? Array.from(activity.context.values())
-          : Object.values(activity.context);
+      // Derive total active seconds for this activity.
+      // Try context first (most accurate), then fall back to apps, then languages.
+      const activityDurationSeconds = this.getActivityDurationSeconds(activity);
+      totalDurationSeconds += activityDurationSeconds;
 
-        for (const duration of contextEntries) {
-          const durationSec = (duration as number) || 0;
-          activityDurationSeconds += durationSec;
-          totalDurationSeconds += durationSec;
-        }
-      }
-
-      // Estimate keystrokes for this activity: KPM * (duration in minutes)
+      // Duration-weighted contribution: rate × minutes active on this project
       const activityDurationMinutes = activityDurationSeconds / 60;
-      const estimatedKeystrokes = typingIntensity * activityDurationMinutes;
-      totalEstimatedKeystrokes += estimatedKeystrokes;
+      totalEstimatedKeystrokes += kpm * activityDurationMinutes;
+      totalEstimatedClicks += cpm * activityDurationMinutes;
     }
 
+    const totalDurationMinutes = totalDurationSeconds / 60;
     const totalDurationHours = totalDurationSeconds / 3600;
     const activeDaysCount = activeDays.size || 1;
     const dailyActiveAverage = totalDurationHours / activeDaysCount;
 
-    const avgTypingIntensity = Math.round((totalTypingIntensity / activeDaysCount) * 10) / 10;
-    const avgMouseClickRate = Math.round((totalMouseClickRate / activeDaysCount) * 10) / 10;
+    // Weighted-average KPM and CPM: total strokes (or clicks) / total active minutes
+    // This correctly handles multiple projects per day without inflating the rate.
+    const avgTypingIntensity =
+      totalDurationMinutes > 0
+        ? Math.round((totalEstimatedKeystrokes / totalDurationMinutes) * 10) / 10
+        : 0;
+    const avgMouseClickRate =
+      totalDurationMinutes > 0
+        ? Math.round((totalEstimatedClicks / totalDurationMinutes) * 10) / 10
+        : 0;
 
     // Correction rate: (total deletions / total estimated keystrokes) * 100
     const correctionRate =
@@ -402,6 +454,31 @@ export class DashboardService {
       avgCorrections: correctionRate,
       dailyActiveAverage,
     };
+  }
+
+  /**
+   * Sum all values in a Mongoose Map or plain object, returning total seconds.
+   * Returns 0 if the map is absent or empty.
+   */
+  private sumMapValues(map: Map<string, number> | Record<string, number> | any): number {
+    if (!map) return 0;
+    const values: number[] = map instanceof Map
+      ? Array.from(map.values())
+      : Object.values(map);
+    return values.reduce((sum, v) => sum + ((v as number) || 0), 0);
+  }
+
+  /**
+   * Derive total active seconds for one Activity document.
+   * Priority: context → apps → languages (all represent the same wall-clock time,
+   * just categorised differently; use the first non-zero source).
+   */
+  private getActivityDurationSeconds(activity: Activity): number {
+    const fromContext = this.sumMapValues(activity.context);
+    if (fromContext > 0) return fromContext;
+    const fromApps = this.sumMapValues(activity.apps);
+    if (fromApps > 0) return fromApps;
+    return this.sumMapValues(activity.languages);
   }
 
   /**
@@ -502,44 +579,36 @@ export class DashboardService {
         continue;
       }
 
-      let sumKpm = 0;
-      let sumCpm = 0;
       let totalIdleSec = 0;
       let totalDel = 0;
       let totalMouse = 0;
-      let totalCtxSec = 0;
-      let totalEstKs = 0;
+      let totalDurSec = 0;
+      let totalEstKs = 0;   // sum(kpm * duration_min)
+      let totalEstClicks = 0; // sum(cpm * duration_min)
 
       for (const act of dayActivities) {
         const kpm = act.behavior?.typing_intensity_kpm || 0;
         const cpm = act.behavior?.mouse_click_rate_cpm || 0;
-        sumKpm += kpm;
-        sumCpm += cpm;
         totalIdleSec += act.behavior?.total_idle_sec || 0;
         totalDel += act.behavior?.total_deletion_key_presses || 0;
         totalMouse += act.behavior?.total_mouse_movement_distance || 0;
 
-        let activityDurationSeconds = 0;
-        if (act.context) {
-          const vals =
-            act.context instanceof Map
-              ? Array.from(act.context.values())
-              : Object.values(act.context);
-          for (const duration of vals) {
-            activityDurationSeconds += (duration as number) || 0;
-          }
-        }
-        totalCtxSec += activityDurationSeconds;
-        const activityDurationMinutes = activityDurationSeconds / 60;
-        totalEstKs += kpm * activityDurationMinutes;
+        const actDurSec = this.getActivityDurationSeconds(act);
+        totalDurSec += actDurSec;
+        const actDurMin = actDurSec / 60;
+        totalEstKs += kpm * actDurMin;
+        totalEstClicks += cpm * actDurMin;
       }
 
-      const n = dayActivities.length;
-      const avgKpm = Math.round((sumKpm / n) * 100) / 100;
-      const avgCpm = Math.round((sumCpm / n) * 100) / 100;
+      const totalDurMin = totalDurSec / 60;
+      // Duration-weighted average: total strokes / total minutes (no per-project inflation)
+      const avgKpm =
+        totalDurMin > 0 ? Math.round((totalEstKs / totalDurMin) * 100) / 100 : 0;
+      const avgCpm =
+        totalDurMin > 0 ? Math.round((totalEstClicks / totalDurMin) * 100) / 100 : 0;
       const correction =
         totalEstKs > 0 ? Math.round((totalDel / totalEstKs) * 1000) / 10 : 0;
-      const activeHours = Math.round((totalCtxSec / 3600) * 100) / 100;
+      const activeHours = Math.round((totalDurSec / 3600) * 100) / 100;
       const idleHours = Math.round((totalIdleSec / 3600) * 100) / 100;
 
       result.push({
@@ -1167,6 +1236,17 @@ export class DashboardService {
   /**
    * Typing / mouse averages weighted by context duration per day (falls back to equal weight if no context).
    */
+  /**
+   * Roll up per-day activity rows into a single project-level behavior summary.
+   *
+   * KPM (keystrokes per minute) and CPM (mouse clicks per minute) are stored
+   * on each day as a *rate*, so a naive arithmetic mean across days would
+   * weight a 30-minute coding day the same as an 8-hour one. We instead use
+   * a **duration-weighted average**: each day's rate contributes proportional
+   * to its active context duration that day. Days with zero recorded duration
+   * are skipped entirely (rather than counted as weight=1) so a `0/0`
+   * sample doesn't drag the project average toward zero.
+   */
   private aggregateProjectBehavior(activities: Activity[]): {
     avg_typing_kpm: number;
     avg_mouse_cpm: number;
@@ -1190,10 +1270,13 @@ export class DashboardService {
           dayCtxSec += this.coerceSeconds(d);
         }
       }
-      const w = dayCtxSec > 0 ? dayCtxSec : 1;
-      weight += w;
-      wTyping += (act.behavior?.typing_intensity_kpm || 0) * w;
-      wMouse += (act.behavior?.mouse_click_rate_cpm || 0) * w;
+      // Skip days with no recorded active duration: their rate is undefined
+      // (zero seconds → 0 events). Counting them as weight=1 used to skew the
+      // project average toward zero on idle days.
+      if (dayCtxSec <= 0) continue;
+      weight += dayCtxSec;
+      wTyping += (act.behavior?.typing_intensity_kpm || 0) * dayCtxSec;
+      wMouse += (act.behavior?.mouse_click_rate_cpm || 0) * dayCtxSec;
     }
 
     const r = (n: number) => Math.round(n * 100) / 100;

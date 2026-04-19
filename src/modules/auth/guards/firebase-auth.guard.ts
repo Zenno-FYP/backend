@@ -28,9 +28,39 @@ export class FirebaseAuthGuard implements CanActivate {
 
     try {
       const decodedToken = await this.firebaseService.verifyToken(token);
+
+      // Defense-in-depth: reject password-provider tokens whose email has
+      // not yet been verified. The mobile/web clients already gate this
+      // client-side, but a tampered or out-of-date client could still send
+      // an unverified password token. Federated providers (google.com,
+      // github.com, apple.com, etc.) get a free pass because the IdP has
+      // already verified the email.
+      const signInProvider: string | undefined =
+        decodedToken?.firebase?.sign_in_provider;
+      if (
+        signInProvider === 'password' &&
+        decodedToken?.email_verified === false
+      ) {
+        this.logger.warn(
+          `Rejecting unverified password token for ${request.method} ${request.url} (uid=${decodedToken?.uid ?? 'unknown'})`,
+        );
+        throw new UnauthorizedException({
+          code: 'AUTH_EMAIL_NOT_VERIFIED',
+          message: 'Email is not verified',
+        });
+      }
+
       request.user = decodedToken;
       return true;
     } catch (error: any) {
+      // Re-throw the email-not-verified case so the response code propagates.
+      if (
+        error instanceof UnauthorizedException &&
+        (error.getResponse() as { code?: string })?.code ===
+          'AUTH_EMAIL_NOT_VERIFIED'
+      ) {
+        throw error;
+      }
       const firebaseCode: string = error?.code ?? error?.errorInfo?.code ?? '';
       if (firebaseCode.includes('expired')) {
         this.logger.warn(`Token expired for request ${request.method} ${request.url}`);

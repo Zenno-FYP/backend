@@ -48,6 +48,8 @@ export class AgentService {
     total_nudges: number;
     today_nudges: number;
     this_week_nudges: number;
+    total_suppressed: number;
+    suppressed_by_reason: Record<string, number>;
   }> {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -55,7 +57,7 @@ export class AgentService {
     const weekStart = new Date(todayStart);
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
 
-    const [total, today, thisWeek] = await Promise.all([
+    const [total, today, thisWeek, suppressed, byReason] = await Promise.all([
       this.nudgeModel.countDocuments({ user_id: userId, was_suppressed: false }),
       this.nudgeModel.countDocuments({
         user_id: userId,
@@ -67,12 +69,33 @@ export class AgentService {
         was_suppressed: false,
         generated_at: { $gte: weekStart },
       }),
+      this.nudgeModel.countDocuments({ user_id: userId, was_suppressed: true }),
+      // Bucket suppressed nudges by reason so the website's Zenno Agent
+      // page can surface the new reasons (`aggregation_failed`,
+      // `display_failed`, `quiet_hours`, `too_recent`, ...).
+      this.nudgeModel.aggregate<{ _id: string | null; count: number }>([
+        { $match: { user_id: userId, was_suppressed: true } },
+        {
+          $group: {
+            _id: { $ifNull: ['$suppression_reason', 'unknown'] },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
     ]);
+
+    const suppressed_by_reason: Record<string, number> = {};
+    for (const row of byReason) {
+      const key = (row._id ?? 'unknown') as string;
+      suppressed_by_reason[key] = row.count;
+    }
 
     return {
       total_nudges: total,
       today_nudges: today,
       this_week_nudges: thisWeek,
+      total_suppressed: suppressed,
+      suppressed_by_reason,
     };
   }
 
@@ -97,6 +120,7 @@ export class AgentService {
             nudge_type: r.nudge_type,
             nudge_text: r.nudge_text ?? '',
             was_suppressed: r.was_suppressed ?? false,
+            suppression_reason: r.suppression_reason ?? null,
           },
         },
         upsert: true,

@@ -15,6 +15,7 @@ import { Server, Socket } from 'socket.io';
 import { FirebaseService } from '../../firebase/firebase.service';
 import { User } from '../user/schemas/user.schema';
 import { ChatService } from './chat.service';
+import { NotificationService } from '../notifications/notification.service';
 import { MarkReadWsDto, SendMessageWsDto } from './dto/chat-rest.dto';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
@@ -22,7 +23,21 @@ import { parseCorsOrigins } from '../../common/cors-origins';
 
 @WebSocketGateway({
   namespace: '/chat',
-  cors: { origin: parseCorsOrigins(), credentials: true },
+  // Use a function so origin resolution is deferred to connection time
+  // (after ConfigModule has loaded .env.production into process.env).
+  // Calling parseCorsOrigins() directly in the decorator would evaluate
+  // at class-load time, before NestJS bootstraps, so env vars aren't set yet.
+  cors: {
+    origin: (origin: string, cb: (err: Error | null, allow?: boolean) => void) => {
+      const allowed = parseCorsOrigins();
+      if (allowed === true || (Array.isArray(allowed) && allowed.includes(origin))) {
+        cb(null, true);
+      } else {
+        cb(new Error(`WebSocket origin not allowed: ${origin}`));
+      }
+    },
+    credentials: true,
+  },
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(ChatGateway.name);
@@ -33,6 +48,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly chatService: ChatService,
     private readonly firebaseService: FirebaseService,
+    private readonly notificationService: NotificationService,
     @InjectModel(User.name) private readonly userModel: Model<User>,
   ) {}
 
@@ -98,6 +114,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
       this.server.to(`user:${saved.recipientMongoId}`).emit('chat:new_message', payload);
       this.server.to(`user:${(client.data as { mongoUserId: string }).mongoUserId}`).emit('chat:new_message', payload);
+
+      const senderUser = await this.userModel.findById((client.data as { mongoUserId: string }).mongoUserId);
+      const senderName = senderUser?.name ?? 'Someone';
+      this.notificationService
+        .createChatNotification(
+          saved.recipientMongoId,
+          senderName,
+          dto.text.slice(0, 80),
+          saved.conversationId,
+          (client.data as { mongoUserId: string }).mongoUserId,
+        )
+        .catch((e) => this.logger.warn('Chat notification error', e));
+
       return { ok: true, message: saved.message };
     } catch (e: any) {
       const msg = e?.response?.message || e?.message || 'Send failed';

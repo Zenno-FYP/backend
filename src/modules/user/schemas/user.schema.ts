@@ -66,3 +66,8 @@ export class User extends Document {
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+
+// `email` unique index is declared via @Prop({ unique: true }) above.
+// Peers search filters by isVerified=true; a partial index on verified
+// users keeps the query fast even as the user collection grows.
+UserSchema.index({ isVerified: 1 });
