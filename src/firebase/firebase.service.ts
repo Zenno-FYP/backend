@@ -179,7 +179,9 @@ export class FirebaseService implements OnModuleInit {
           ) {
             failedTokens.push(tokens[idx]);
           }
-          this.logger.warn(`FCM send failed for token[${idx}]: ${resp.error?.message}`);
+          this.logger.warn(
+            `FCM send failed for token[${idx}] (code: ${code ?? 'unknown'}): ${resp.error?.message}`,
+          );
         }
       });
 
