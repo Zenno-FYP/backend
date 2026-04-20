@@ -1,6 +1,70 @@
 import * as admin from 'firebase-admin';
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 
+/**
+ * Extract PEM from a Firebase service-account JSON string (file contents).
+ */
+function pemFromServiceAccountJson(text: string): string | null {
+  const t = text.trim();
+  if (!t.startsWith('{')) return null;
+  try {
+    const o = JSON.parse(t) as { private_key?: string };
+    if (typeof o.private_key === 'string' && o.private_key.includes('BEGIN')) {
+      return o.private_key.replace(/\\n/g, '\n');
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Normalize FIREBASE_PRIVATE_KEY from env (.env often stores PEM as one line
+ * with literal `\n`). Never strip all whitespace from PEM — OpenSSL 3 rejects
+ * malformed keys with `DECODER routines::unsupported`.
+ *
+ * Supports:
+ * - Raw PEM (with real or `\n` newlines)
+ * - Base64 of PEM only
+ * - Base64 of the full service-account **JSON** (common when people paste the
+ *   whole file as one line) — we decode and read `private_key`
+ */
+function normalizeFirebasePrivateKey(raw: string): string {
+  let key = raw.trim();
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1);
+  }
+  key = key.replace(/\\n/g, '\n');
+
+  if (key.includes('BEGIN')) {
+    return key;
+  }
+
+  const fromJson = pemFromServiceAccountJson(key);
+  if (fromJson) {
+    return fromJson;
+  }
+
+  const compact = key.replace(/\s+/g, '');
+  try {
+    const decoded = Buffer.from(compact, 'base64').toString('utf8');
+    const fromDecodedJson = pemFromServiceAccountJson(decoded);
+    if (fromDecodedJson) {
+      return fromDecodedJson;
+    }
+    if (decoded.includes('BEGIN')) {
+      return decoded;
+    }
+  } catch {
+    /* fall through */
+  }
+
+  return key;
+}
+
 @Injectable()
 export class FirebaseService implements OnModuleInit {
   private auth: admin.auth.Auth;
@@ -19,22 +83,12 @@ export class FirebaseService implements OnModuleInit {
         throw new Error('Missing Firebase credentials');
       }
 
-      // Aggressive cleanup:
-      if (privateKey) {
-        // Remove all whitespace (spaces, newlines, tabs)
-        privateKey = privateKey.replace(/\s+/g, '');
-
-        // Check if it's Base64 (doesn't start with '-----BEGIN')
-        if (!privateKey.startsWith('-----BEGIN')) {
-          // Decode from Base64
-          privateKey = Buffer.from(privateKey, 'base64').toString('utf8');
-          this.logger.log('Firebase private key decoded from Base64');
-        }
-
-        // Remove any accidental wrapping quotes and fix double-escaped newlines
-        privateKey = privateKey
-          .replace(/^["']|["']$/g, '') // Remove quotes at start/end
-          .replace(/\\n/g, '\n');      // Fix literal \n into real newlines
+      privateKey = normalizeFirebasePrivateKey(privateKey);
+      if (!privateKey.includes('BEGIN')) {
+        this.logger.error(
+          'FIREBASE_PRIVATE_KEY must be PEM, base64 of PEM, or base64 of service-account JSON',
+        );
+        throw new Error('Invalid FIREBASE_PRIVATE_KEY format');
       }
 
       if (!admin.apps.length) {
