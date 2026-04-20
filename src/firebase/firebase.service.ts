@@ -59,14 +59,30 @@ export class FirebaseService implements OnModuleInit {
     return this.auth.verifyIdToken(token);
   }
 
+  /** Short fingerprint for logs (full FCM tokens are secrets). */
+  private tokenHint(token: string): string {
+    if (!token?.length) return '(empty)';
+    if (token.length <= 28) return `${token}…`;
+    return `${token.slice(0, 14)}…${token.slice(-8)}`;
+  }
+
   async sendMulticastPush(
     tokens: string[],
     notification: { title: string; body: string },
     data: Record<string, string>,
-  ): Promise<{ successCount: number; failedTokens: string[] }> {
+  ): Promise<{
+    successCount: number;
+    failedTokens: string[];
+    /** Set when `sendEachForMulticast` throws before per-token results exist */
+    multicastError?: string;
+    /** One entry per failed token (same order as input tokens where applicable) */
+    failureDetails?: Array<{ tokenHint: string; code: string; message: string }>;
+  }> {
     if (!tokens.length) {
       return { successCount: 0, failedTokens: [] };
     }
+
+    this.logger.log(`FCM sendMulticastPush: ${tokens.length} token(s)`);
 
     // Mirror the title/body into the data payload too. The mobile
     // foreground handler used to silently no-op when `RemoteMessage.notification`
@@ -116,16 +132,29 @@ export class FirebaseService implements OnModuleInit {
       });
 
       const failedTokens: string[] = [];
+      const failureDetails: Array<{
+        tokenHint: string;
+        code: string;
+        message: string;
+      }> = [];
       response.responses.forEach((resp, idx) => {
         if (!resp.success) {
-          const code = resp.error?.code;
+          const code = resp.error?.code ?? 'unknown';
+          const hint = this.tokenHint(tokens[idx]);
           if (
             code === 'messaging/registration-token-not-registered' ||
             code === 'messaging/invalid-registration-token'
           ) {
             failedTokens.push(tokens[idx]);
           }
-          this.logger.warn(`FCM send failed for token[${idx}]: ${resp.error?.message}`);
+          failureDetails.push({
+            tokenHint: hint,
+            code,
+            message: resp.error?.message ?? 'n/a',
+          });
+          this.logger.warn(
+            `FCM send failed token=${hint} code=${code} message=${resp.error?.message ?? 'n/a'}`,
+          );
         }
       });
 
@@ -134,10 +163,24 @@ export class FirebaseService implements OnModuleInit {
           (failedTokens.length ? `, ${failedTokens.length} stale token(s) will be purged` : ''),
       );
 
-      return { successCount: response.successCount, failedTokens };
+      return {
+        successCount: response.successCount,
+        failedTokens,
+        failureDetails:
+          failureDetails.length > 0 ? failureDetails : undefined,
+      };
     } catch (error) {
-      this.logger.error('FCM multicast send failed', error);
-      return { successCount: 0, failedTokens: [] };
+      const err = error as Error & { code?: string };
+      const msg = err?.message ?? String(error);
+      this.logger.error(
+        `FCM multicast send threw: ${msg} code=${err?.code ?? 'n/a'}`,
+        err?.stack,
+      );
+      return {
+        successCount: 0,
+        failedTokens: [],
+        multicastError: msg,
+      };
     }
   }
 }
