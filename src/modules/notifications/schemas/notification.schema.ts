@@ -27,8 +27,14 @@ export class Notification extends Document {
   @Prop({ type: Date, default: null })
   push_sent_at: Date | null;
 
-  @Prop({ type: String, default: null })
-  dedupe_key: string | null;
+  /**
+   * Only set for types that need idempotent sends (`new_project`, `daily_digest`).
+   * Chat and test rows omit this field entirely — if Mongoose stored `null`
+   * here, MongoDB's unique index on `dedupe_key` would only allow a single
+   * such document cluster-wide (dup key on `{ dedupe_key: null }`).
+   */
+  @Prop({ type: String, required: false })
+  dedupe_key?: string | null;
 
   @Prop({ type: Date, default: Date.now })
   created_at: Date;
