@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -156,6 +158,7 @@ export class NotificationService {
       title: 'Zenno test notification',
       body: 'If you can read this, push notifications are working on this device.',
       data: new Map<string, string>([['type', 'test']]),
+      dedupe_key: `test:${userId.toString()}:${randomUUID()}`,
     });
 
     const dataPayload: Record<string, string> = {
