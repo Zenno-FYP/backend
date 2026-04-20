@@ -9,8 +9,6 @@ import {
   Query,
   Req,
   UseGuards,
-  Logger,
-  InternalServerErrorException,
 } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
@@ -27,8 +25,6 @@ import {
 @Controller('api/v1/notifications')
 @UseGuards(FirebaseAuthGuard)
 export class NotificationController {
-  private readonly logger = new Logger(NotificationController.name);
-
   constructor(
     private readonly notificationService: NotificationService,
     @InjectModel(User.name) private readonly userModel: Model<User>,
@@ -132,33 +128,5 @@ export class NotificationController {
     const userId = await this.getUserId(req);
     const prefs = await this.notificationService.updatePreferences(userId, dto);
     return { data: prefs };
-  }
-
-  /**
-   * Self-test endpoint: fire a real FCM push to every device the
-   * authenticated user has registered, plus drop a row into the
-   * in-app notifications list. Surfaced from the mobile Settings
-   * sheet so users (and us during QA) can verify push delivery
-   * without having to wait on a peer to send a chat message.
-   */
-  @Post('test')
-  async sendTest(@Req() req: any) {
-    const userId = await this.getUserId(req);
-    try {
-      const result =
-        await this.notificationService.sendTestNotification(userId);
-      return { data: result };
-    } catch (e: any) {
-      // Surface the real cause to the server log instead of letting Nest
-      // hide it behind a generic "Internal server error" — the test
-      // endpoint is exactly where we need diagnostic clarity.
-      this.logger.error(
-        `sendTestNotification failed for user=${userId.toString()}: ${e?.message ?? e}`,
-        e?.stack,
-      );
-      throw new InternalServerErrorException(
-        e?.message ?? 'sendTestNotification failed',
-      );
-    }
   }
 }
