@@ -125,6 +125,10 @@ export class NotificationService {
     deviceCount: number;
     successCount: number;
     reason?: string;
+    /** Firebase error code (or `multicast_exception` if the batch threw) */
+    fcmCode?: string;
+    /** Human-readable FCM error — only when `reason === 'fcm_failed'` */
+    fcmMessage?: string;
   }> {
     const prefs = await this.getOrCreatePrefs(userId);
     if (!prefs.push_enabled) {
@@ -188,11 +192,30 @@ export class NotificationService {
       );
     }
 
+    const failed = result.successCount === 0;
+    const first = result.failureDetails?.[0];
+    const fcmCode = failed
+      ? result.multicastError
+        ? 'multicast_exception'
+        : first?.code
+      : undefined;
+    const fcmMessage = failed
+      ? (result.multicastError ?? first?.message)
+      : undefined;
+
+    if (failed && (fcmCode || fcmMessage)) {
+      this.logger.warn(
+        `sendTestNotification FCM failed: code=${fcmCode ?? '?'} message=${fcmMessage ?? '?'}`,
+      );
+    }
+
     return {
-      pushed: result.successCount > 0,
+      pushed: !failed,
       deviceCount: devices.length,
       successCount: result.successCount,
-      reason: result.successCount === 0 ? 'fcm_failed' : undefined,
+      reason: failed ? 'fcm_failed' : undefined,
+      fcmCode,
+      fcmMessage,
     };
   }
 
