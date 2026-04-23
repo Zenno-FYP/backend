@@ -1,98 +1,209 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Zenno Backend API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Zenno Backend is the core API service for the Zenno platform. It powers:
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+- authenticated user profile management
+- activity ingestion and analytics calculations
+- dashboard metrics and insights endpoints
+- real-time chat (REST + WebSocket)
+- notification preferences, unread states, and push delivery
+- agent preferences and nudge-related stats
 
-## Description
+The service is built with NestJS and MongoDB, using Firebase ID token verification for authentication.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Product Overview
 
-## Project setup
+Zenno is a developer productivity and wellbeing platform. This backend acts as the system of record for user profiles, coding activity summaries, project insights, peer discovery, chat messages, and notification events.
+
+It is consumed by:
+
+- `website` frontend (React/Vite web app)
+- `desktop-agent` client (activity and nudge integrations)
+- `mobile_app` client (dashboard/profile/chat/notifications)
+
+## Core Features
+
+### Authentication and Identity
+
+- Firebase ID token verification via server-side guard
+- protected API routes for all user-scoped data
+- support for verified and controlled unverified flows where needed
+
+### User Profile APIs
+
+- current-user retrieval and profile updates
+- profile photo upload integration (Cloudinary)
+- public profile data for peer-facing pages
+
+### Activity and Dashboard Analytics
+
+- activity sync ingestion endpoints
+- performance metrics and trend summaries
+- tool usage, language distribution, skills and project insights
+- project-level detail APIs used by dashboard drill-down pages
+
+### Real-Time Chat
+
+- REST endpoints for conversations/messages
+- Socket.IO namespace (`/chat`) for live send/read events
+- Firebase-authenticated WebSocket handshake
+
+### Notifications and Digests
+
+- notification device registration/unregistration
+- in-app notification list and unread counters
+- read and read-all actions
+- user notification preferences
+- scheduled daily digest generation
+
+### Agent Preferences
+
+- nudge preference retrieval and update APIs
+- aggregate nudge statistics endpoints
+
+## API Base and Route Groups
+
+- Base prefix: `api/v1`
+- Main controller groups:
+  - `/api/v1/user`
+  - `/api/v1/sync`
+  - `/api/v1/dashboard`
+  - `/api/v1/chat`
+  - `/api/v1/notifications`
+  - `/api/v1/agent`
+
+## Architecture Overview
+
+- **Framework**: NestJS 11 + TypeScript
+- **Database**: MongoDB (Mongoose ODM)
+- **Auth**: Firebase Admin SDK token verification
+- **Realtime**: Socket.IO gateway for chat
+- **Scheduler**: `@nestjs/schedule` cron jobs for notification digests
+- **Validation**: global `ValidationPipe` with whitelist/transform protections
+- **Docs**: Swagger available at `/api/docs` when enabled
+
+## Project Structure
+
+- `src/main.ts` - bootstrap, CORS, pipes, Swagger, server start
+- `src/app.module.ts` - root module wiring and MongoDB connection
+- `src/firebase` - Firebase Admin integration and token verification
+- `src/modules/user` - user profile and account data
+- `src/modules/activity` - activity sync and related storage
+- `src/modules/dashboard` - analytics and insight endpoints
+- `src/modules/chat` - chat REST endpoints and WebSocket gateway
+- `src/modules/notifications` - notifications, preferences, digest scheduler
+- `src/modules/agent` - agent preferences and nudge stats
+- `src/common` - shared utilities (for example CORS parsing)
+
+## Prerequisites
+
+- Node.js 20+ recommended
+- npm 10+ recommended
+- MongoDB instance (local or hosted)
+- Firebase service account credentials
+- Cloudinary account (optional, if using profile photo uploads)
+
+## Environment Variables
+
+Copy `.env.example` to `.env` and set real values.
 
 ```bash
-$ npm install
+# macOS/Linux
+cp .env.example .env
+
+# Windows PowerShell
+Copy-Item .env.example .env
 ```
 
-## Compile and run the project
+### Required
+
+- `PORT` - HTTP server port (default `3000`)
+- `MONGODB_URI` - MongoDB connection URI
+- `CORS_ORIGINS` - comma-separated allowlist of frontend origins
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY` - escaped newline format when stored in `.env`
+
+### Optional
+
+- `ENABLE_SWAGGER` - set `false` to disable Swagger docs
+- `CLOUDINARY_CLOUD_NAME`
+- `CLOUDINARY_API_KEY`
+- `CLOUDINARY_API_SECRET`
+
+## Local Development
+
+1. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+2. Create and fill `.env` from `.env.example`.
+
+3. Run in watch mode:
+
+   ```bash
+   npm run start:dev
+   ```
+
+4. API URL:
+
+   - `http://localhost:3000`
+   - Swagger (if enabled): `http://localhost:3000/api/docs`
+
+## Scripts
+
+- `npm run dev` - alias for watch mode
+- `npm run start` - start app
+- `npm run start:dev` - start with file watch
+- `npm run start:debug` - debug + watch
+- `npm run build` - compile to `dist/`
+- `npm run start:prod` - run compiled output
+- `npm run lint` - eslint autofix pass
+- `npm run test` - unit tests
+- `npm run test:cov` - coverage
+- `npm run test:e2e` - e2e tests
+
+## Docker
+
+### Docker Compose
+
+This repo includes `docker-compose.yml` with a single `api` service:
+
+- builds from local `Dockerfile`
+- maps container port `3000` to host `3000`
+- loads runtime variables from `.env`
+
+Run:
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+docker compose up --build
 ```
 
-## Run tests
+## Security Best Practices
 
-```bash
-# unit tests
-$ npm run test
+- Never commit `.env` files or server secrets.
+- Rotate credentials if accidental exposure is suspected.
+- Keep Firebase service account keys private and least-privileged.
+- Restrict CORS origins to known trusted clients.
+- Disable Swagger in production unless intentionally exposed.
+- Validate all request payloads (already enforced globally).
 
-# e2e tests
-$ npm run test:e2e
+## Operational Notes
 
-# test coverage
-$ npm run test:cov
-```
+- MongoDB connection lifecycle logs are emitted on connect/error.
+- Chat WebSocket namespace is `/chat` and validates Firebase auth tokens on connect.
+- Daily digest scheduler runs hourly and sends local-time-based summaries for eligible users.
 
-## Deployment
+## Troubleshooting
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+- **Mongo connect failures**: verify `MONGODB_URI`, network, and DNS access.
+- **401 responses**: ensure Firebase token is valid and project IDs match backend config.
+- **CORS errors**: confirm frontend origin exists in `CORS_ORIGINS`.
+- **Missing Swagger**: check `ENABLE_SWAGGER` is not set to `false`.
+- **Chat socket disconnects**: verify token passed in socket auth payload.
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Current `package.json` is marked `UNLICENSED`. Add a `LICENSE` file before public open-source distribution if you want explicit usage terms.

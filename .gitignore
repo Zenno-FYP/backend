@@ -30,6 +30,7 @@ build/*.tsbuildinfo
 
 # Logs
 *.log
+*.err
 logs/
 
 # Test Coverage
