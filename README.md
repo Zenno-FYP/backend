@@ -21,6 +21,16 @@ It is consumed by:
 - `desktop-agent` client (activity and nudge integrations)
 - `mobile_app` client (dashboard/profile/chat/notifications)
 
+## Tech Stack
+
+- NestJS 11
+- TypeScript
+- MongoDB + Mongoose
+- Firebase Admin SDK (token verification)
+- Socket.IO (WebSocket chat)
+- Swagger / OpenAPI
+- Node.js + npm
+
 ## Core Features
 
 ### Authentication and Identity
@@ -204,6 +214,6 @@ docker compose up --build
 - **Missing Swagger**: check `ENABLE_SWAGGER` is not set to `false`.
 - **Chat socket disconnects**: verify token passed in socket auth payload.
 
-## License
+---
 
-Current `package.json` is marked `UNLICENSED`. Add a `LICENSE` file before public open-source distribution if you want explicit usage terms.
+Last Updated: 2026-04-23
