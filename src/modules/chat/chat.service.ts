@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -9,6 +10,7 @@ import { Model, Types } from 'mongoose';
 import { User } from '../user/schemas/user.schema';
 import { Conversation } from './schemas/conversation.schema';
 import { ChatMessage } from './schemas/chat-message.schema';
+import { ChatReport } from './schemas/chat-report.schema';
 import {
   ChatMessageItemDto,
   ConversationSummaryDto,
@@ -40,6 +42,7 @@ export class ChatService {
     @InjectModel(User.name) private userModel: Model<User>,
     @InjectModel(Conversation.name) private conversationModel: Model<Conversation>,
     @InjectModel(ChatMessage.name) private messageModel: Model<ChatMessage>,
+    @InjectModel(ChatReport.name) private chatReportModel: Model<ChatReport>,
   ) {}
 
   private async userByEmail(email: string): Promise<User> {
@@ -222,6 +225,41 @@ export class ChatService {
       recipientMongoId: otherId.toString(),
       message: dto,
     };
+  }
+
+  async reportConversation(reporterEmail: string, conversationId: string, reason?: string): Promise<{ report_id: string }> {
+    if (!Types.ObjectId.isValid(conversationId)) {
+      throw new BadRequestException('Invalid conversation id');
+    }
+    const me = await this.userByEmail(reporterEmail);
+    const conv = await this.conversationModel.findById(conversationId);
+    if (!conv) {
+      throw new NotFoundException('Conversation not found');
+    }
+    this.assertParticipant(conv, me._id as Types.ObjectId);
+
+    const cid = new Types.ObjectId(conversationId);
+    const existing = await this.chatReportModel.findOne({
+      reporter_id: me._id,
+      conversation_id: cid,
+      status: 'open',
+    });
+    if (existing) {
+      throw new ConflictException({
+        code: 'REPORT_DUPLICATE',
+        message: 'You already have an open report for this conversation',
+      });
+    }
+
+    const doc = await this.chatReportModel.create({
+      reporter_id: me._id as Types.ObjectId,
+      conversation_id: cid,
+      reason: (reason ?? '').trim().slice(0, 500),
+      status: 'open',
+      admin_note: '',
+      resolved_at: null,
+    });
+    return { report_id: doc._id.toString() };
   }
 
   async markReadByUserId(mongoUserId: string, conversationId: string): Promise<void> {
