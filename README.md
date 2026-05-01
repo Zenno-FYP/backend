@@ -17,7 +17,7 @@ Zenno is a developer productivity and wellbeing platform. This backend acts as t
 
 It is consumed by:
 
-- `website` frontend (React/Vite web app)
+- `website` frontend (React/Vite web app), including the **admin console** for operators
 - `desktop-agent` client (activity and nudge integrations)
 - `mobile_app` client (dashboard/profile/chat/notifications)
 
@@ -71,6 +71,18 @@ It is consumed by:
 - nudge preference retrieval and update APIs
 - aggregate nudge statistics endpoints
 
+### Admin API (operators)
+
+Moderation and workspace-wide metrics for accounts with **`users.isAdmin === true`** in MongoDB (same Firebase identity as the main app). Every admin route uses **`FirebaseAuthGuard`** then **`AdminAuthGuard`** (loads the user by email and checks `isAdmin`).
+
+- **`GET /api/v1/admin/stats`** — totals, verified/unverified counts, desktop-active (last hour, from `activity_sync_at`), new signups (7d), open chat report count
+- **`GET /api/v1/admin/users`** — paginated user directory (`page`, `limit`, optional `verified=all|true|false`)
+- **`GET /api/v1/admin/chat-reports`** — paginated report queue (`page`, `limit`, optional `status`)
+- **`GET /api/v1/admin/chat-reports/:reportId`** — report detail with participant list and a capped message preview (no full history dump)
+- **`PATCH /api/v1/admin/chat-reports/:reportId`** — update `status` and optional `admin_note` (closing a report sets `resolved_at`)
+
+Documented under the **Admin** tag in Swagger when `ENABLE_SWAGGER` is enabled. Implementation lives in `src/modules/admin/` (controller, stats/users/chat-reports services, `AdminAuthGuard`).
+
 ## API Base and Route Groups
 
 - Base prefix: `api/v1`
@@ -81,6 +93,7 @@ It is consumed by:
   - `/api/v1/chat`
   - `/api/v1/notifications`
   - `/api/v1/agent`
+  - `/api/v1/admin` (Firebase + `isAdmin`; see **Admin API** above)
 
 ## Architecture Overview
 
@@ -103,6 +116,7 @@ It is consumed by:
 - `src/modules/chat` - chat REST endpoints and WebSocket gateway
 - `src/modules/notifications` - notifications, preferences, digest scheduler
 - `src/modules/agent` - agent preferences and nudge stats
+- `src/modules/admin` - admin dashboard APIs (stats, users, chat report moderation)
 - `src/common` - shared utilities (for example CORS parsing)
 
 ## Prerequisites
@@ -210,10 +224,11 @@ docker compose up --build
 
 - **Mongo connect failures**: verify `MONGODB_URI`, network, and DNS access.
 - **401 responses**: ensure Firebase token is valid and project IDs match backend config.
+- **403 `ADMIN_FORBIDDEN` on `/api/v1/admin/*`**: the signed-in Firebase user must exist in MongoDB with `isAdmin: true`.
 - **CORS errors**: confirm frontend origin exists in `CORS_ORIGINS`.
 - **Missing Swagger**: check `ENABLE_SWAGGER` is not set to `false`.
 - **Chat socket disconnects**: verify token passed in socket auth payload.
 
 ---
 
-Last Updated: 2026-04-23
+Last Updated: 2026-05-01
