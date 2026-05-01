@@ -17,7 +17,7 @@ import { PeersSearchResponseDto } from './dto/peers-search.dto';
 
 @ApiTags('Dashboard')
 @Controller('api/v1/dashboard')
-@ApiBearerAuth()
+@ApiBearerAuth('firebase')
 @UseGuards(FirebaseAuthGuard)
 export class DashboardController {
   constructor(

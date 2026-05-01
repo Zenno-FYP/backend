@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import cookieParser from 'cookie-parser';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
@@ -14,6 +15,7 @@ async function bootstrap() {
   }
 
   const app = await NestFactory.create(AppModule);
+  app.use(cookieParser());
   app.useWebSocketAdapter(new IoAdapter(app));
 
   app.useGlobalPipes(
@@ -37,11 +39,35 @@ async function bootstrap() {
   if (enableSwagger) {
     const config = new DocumentBuilder()
       .setTitle('Zenno Backend API')
-      .setDescription('API documentation for Zenno - Firebase Token Verification')
+      .setDescription(
+        [
+          'REST API for Zenno (web, mobile, desktop agent).',
+          '',
+          '**Authentication:** Most routes require a Firebase ID token in `Authorization: Bearer <token>`.',
+          'Click **Authorize**, paste the raw token (no `Bearer` prefix in the Swagger UI field unless your client adds it).',
+          '',
+          '**Admin:** `/api/v1/admin/*` requires the same Firebase token **and** `users.isAdmin === true` in MongoDB.',
+          '',
+          '**WebSocket chat:** Real-time messaging uses Socket.IO namespace `/chat` (not listed as REST operations here).',
+        ].join('\n'),
+      )
       .setVersion('1.0.0')
-      .addBearerAuth()
-      .addTag('User', 'User profile endpoints')
-      .addTag('Chat', 'Direct messages (REST + WebSocket /chat)')
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description: 'Firebase ID token (same token the website/mobile send as Bearer)',
+        },
+        'firebase',
+      )
+      .addTag('User', 'Current user profile (GET/PATCH /user/me, photo upload)')
+      .addTag('Dashboard', 'Analytics: metrics, tool usage, projects, peers, public profiles')
+      .addTag('Activity/Sync', 'Desktop agent batch sync of activity aggregates')
+      .addTag('Agent', 'Zenno agent preferences and nudge sync (desktop + website)')
+      .addTag('Chat', 'Direct messages REST: inbox, messages, read receipts, report conversation')
+      .addTag('Notifications', 'Push device registration, in-app notification inbox, preferences')
+      .addTag('Admin', 'Admin dashboard: aggregate stats, users table, chat report moderation')
       .build();
 
     const document = SwaggerModule.createDocument(app, config);

@@ -9,6 +9,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { AgentModule } from './modules/agent/agent.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 const logger = new Logger('AppModule');
 
@@ -37,6 +38,7 @@ const logger = new Logger('AppModule');
     ChatModule,
     AgentModule,
     NotificationsModule,
+    AdminModule,
   ],
 })
 export class AppModule {}

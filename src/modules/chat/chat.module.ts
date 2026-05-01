@@ -7,6 +7,7 @@ import { ChatGateway } from './chat.gateway';
 import { ChatService } from './chat.service';
 import { ChatMessage, ChatMessageSchema } from './schemas/chat-message.schema';
 import { Conversation, ConversationSchema } from './schemas/conversation.schema';
+import { ChatReport, ChatReportSchema } from './schemas/chat-report.schema';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
@@ -15,12 +16,13 @@ import { NotificationsModule } from '../notifications/notifications.module';
       { name: User.name, schema: UserSchema },
       { name: Conversation.name, schema: ConversationSchema },
       { name: ChatMessage.name, schema: ChatMessageSchema },
+      { name: ChatReport.name, schema: ChatReportSchema },
     ]),
     FirebaseModule,
     forwardRef(() => NotificationsModule),
   ],
   controllers: [ChatController],
   providers: [ChatService, ChatGateway],
-  exports: [ChatService],
+  exports: [ChatService, MongooseModule],
 })
 export class ChatModule {}

@@ -10,6 +10,15 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Types } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -22,6 +31,8 @@ import {
   ListNotificationsQueryDto,
 } from './dto/notification.dto';
 
+@ApiTags('Notifications')
+@ApiBearerAuth('firebase')
 @Controller('api/v1/notifications')
 @UseGuards(FirebaseAuthGuard)
 export class NotificationController {
@@ -66,6 +77,14 @@ export class NotificationController {
   }
 
   @Post('devices')
+  @ApiOperation({
+    summary: 'Register FCM device token',
+    description:
+      'Upserts a device row for push delivery. `platform` is `web` or `android`. Same token for another user is reassigned.',
+  })
+  @ApiBody({ type: RegisterDeviceDto })
+  @ApiResponse({ status: 201, description: '{ success: true }' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing Firebase token' })
   async registerDevice(@Req() req: any, @Body() dto: RegisterDeviceDto) {
     const userId = await this.getUserId(req);
     await this.notificationService.registerDevice(
@@ -78,6 +97,13 @@ export class NotificationController {
   }
 
   @Delete('devices/:token')
+  @ApiOperation({ summary: 'Remove FCM device token for current user' })
+  @ApiParam({
+    name: 'token',
+    description: 'Raw FCM registration token (URL-encoded if it contains special characters)',
+  })
+  @ApiResponse({ status: 200, description: '{ success: true }' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing Firebase token' })
   async unregisterDevice(@Req() req: any, @Param('token') token: string) {
     const userId = await this.getUserId(req);
     await this.notificationService.unregisterDevice(userId, token);
@@ -85,6 +111,17 @@ export class NotificationController {
   }
 
   @Get()
+  @ApiOperation({
+    summary: 'List in-app notifications',
+    description: 'Paginated inbox for the current user (newest first). Default page=1, limit=20, max limit=50.',
+  })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiResponse({
+    status: 200,
+    description: 'Paginated notifications (shape from NotificationService.listNotifications)',
+  })
+  @ApiResponse({ status: 401, description: 'Invalid or missing Firebase token' })
   async list(@Req() req: any, @Query() query: ListNotificationsQueryDto) {
     const userId = await this.getUserId(req);
     const page = query.page ?? 1;
@@ -93,6 +130,9 @@ export class NotificationController {
   }
 
   @Get('unread-count')
+  @ApiOperation({ summary: 'Unread notification count' })
+  @ApiResponse({ status: 200, description: '{ count: number }' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing Firebase token' })
   async unreadCount(@Req() req: any) {
     const userId = await this.getUserId(req);
     const count = await this.notificationService.getUnreadCount(userId);
@@ -100,6 +140,10 @@ export class NotificationController {
   }
 
   @Post(':id/read')
+  @ApiOperation({ summary: 'Mark one notification as read' })
+  @ApiParam({ name: 'id', description: 'Notification document id' })
+  @ApiResponse({ status: 201, description: '{ success: true }' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing Firebase token' })
   async markRead(@Req() req: any, @Param('id') id: string) {
     const userId = await this.getUserId(req);
     await this.notificationService.markRead(userId, id);
@@ -107,6 +151,9 @@ export class NotificationController {
   }
 
   @Post('read-all')
+  @ApiOperation({ summary: 'Mark all notifications as read' })
+  @ApiResponse({ status: 201, description: '{ success: true }' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing Firebase token' })
   async markAllRead(@Req() req: any) {
     const userId = await this.getUserId(req);
     await this.notificationService.markAllRead(userId);
@@ -114,6 +161,12 @@ export class NotificationController {
   }
 
   @Get('preferences')
+  @ApiOperation({ summary: 'Get notification channel preferences' })
+  @ApiResponse({
+    status: 200,
+    description: '{ data: NotificationPreferences } — push/chat/digest toggles',
+  })
+  @ApiResponse({ status: 401, description: 'Invalid or missing Firebase token' })
   async getPreferences(@Req() req: any) {
     const userId = await this.getUserId(req);
     const prefs = await this.notificationService.getPreferences(userId);
@@ -121,6 +174,10 @@ export class NotificationController {
   }
 
   @Put('preferences')
+  @ApiOperation({ summary: 'Update notification channel preferences' })
+  @ApiBody({ type: UpdateNotificationPreferencesDto })
+  @ApiResponse({ status: 200, description: '{ data: updated preferences }' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing Firebase token' })
   async updatePreferences(
     @Req() req: any,
     @Body() dto: UpdateNotificationPreferencesDto,

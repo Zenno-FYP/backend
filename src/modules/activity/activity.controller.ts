@@ -22,7 +22,7 @@ export class ActivityController {
   constructor(private readonly activityService: ActivityService) {}
 
   @Post('activity')
-  @ApiBearerAuth()
+  @ApiBearerAuth('firebase')
   @UseGuards(FirebaseAuthGuard)
   @ApiOperation({
     summary: 'Sync activity data from desktop agent',

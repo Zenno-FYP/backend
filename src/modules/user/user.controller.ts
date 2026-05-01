@@ -25,7 +25,7 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @Get('me')
-  @ApiBearerAuth()
+  @ApiBearerAuth('firebase')
   @UseGuards(FirebaseAuthGuard)
   @ApiOperation({ summary: 'Get current user details' })
   @ApiResponse({ status: 200, description: 'User details retrieved successfully' })
@@ -41,7 +41,7 @@ export class UserController {
   }
 
   @Put('me')
-  @ApiBearerAuth()
+  @ApiBearerAuth('firebase')
   @UseGuards(FirebaseAuthGuard)
   @AllowUnverified()
   @UseInterceptors(FileInterceptor('profilePhoto'))
@@ -89,7 +89,7 @@ export class UserController {
   }
 
   @Patch('me')
-  @ApiBearerAuth()
+  @ApiBearerAuth('firebase')
   @UseGuards(FirebaseAuthGuard)
   @ApiOperation({ summary: 'Update profile (name, bio, social links, display preferences)' })
   @ApiResponse({ status: 200, description: 'Profile updated' })
@@ -105,7 +105,7 @@ export class UserController {
   }
 
   @Post('me/profile-photo')
-  @ApiBearerAuth()
+  @ApiBearerAuth('firebase')
   @UseGuards(FirebaseAuthGuard)
   @UseInterceptors(
     FileInterceptor('profilePhoto', {
