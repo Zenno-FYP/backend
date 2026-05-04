@@ -9,8 +9,8 @@ export class NotificationDevice extends Document {
   @Prop({ required: true, unique: true })
   fcm_token: string;
 
-  @Prop({ required: true, enum: ['web', 'android'] })
-  platform: 'web' | 'android';
+  @Prop({ required: true, enum: ['web', 'android', 'ios'] })
+  platform: 'web' | 'android' | 'ios';
 
   @Prop({ type: String, default: '' })
   device_label: string;

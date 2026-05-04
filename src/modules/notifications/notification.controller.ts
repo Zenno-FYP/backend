@@ -80,7 +80,7 @@ export class NotificationController {
   @ApiOperation({
     summary: 'Register FCM device token',
     description:
-      'Upserts a device row for push delivery. `platform` is `web` or `android`. Same token for another user is reassigned.',
+      'Upserts a device row for push delivery. `platform` is `web`, `android`, or `ios`. Same token for another user is reassigned.',
   })
   @ApiBody({ type: RegisterDeviceDto })
   @ApiResponse({ status: 201, description: '{ success: true }' })
