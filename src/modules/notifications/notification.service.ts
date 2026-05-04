@@ -148,7 +148,7 @@ export class NotificationService {
   async registerDevice(
     userId: Types.ObjectId,
     token: string,
-    platform: 'web' | 'android',
+    platform: 'web' | 'android' | 'ios',
     deviceLabel: string,
   ) {
     await this.deviceModel.findOneAndUpdate(

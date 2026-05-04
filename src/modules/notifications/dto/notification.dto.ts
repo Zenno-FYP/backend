@@ -17,9 +17,9 @@ export class RegisterDeviceDto {
 
   // Backend currently treats every platform identically, but we still
   // restrict the value so callers can't smuggle in arbitrary strings.
-  @ApiProperty({ enum: ['web', 'android'] })
-  @IsIn(['web', 'android'])
-  platform: 'web' | 'android';
+  @ApiProperty({ enum: ['web', 'android', 'ios'] })
+  @IsIn(['web', 'android', 'ios'])
+  platform: 'web' | 'android' | 'ios';
 
   @ApiPropertyOptional({ description: 'Human-readable label (e.g. device model)' })
   @IsString()
