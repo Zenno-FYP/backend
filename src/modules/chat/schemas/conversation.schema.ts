@@ -3,6 +3,10 @@ import { Document, Types } from 'mongoose';
 
 @Schema({ timestamps: true, versionKey: false })
 export class Conversation extends Document {
+  /** Stable key for the two participants, sorted by ObjectId string. */
+  @Prop({ type: String, required: true })
+  conversation_key: string;
+
   /** Two distinct users, sorted by ObjectId string for stable uniqueness */
   @Prop({ type: [Types.ObjectId], ref: 'User', required: true })
   participant_ids: Types.ObjectId[];
@@ -19,5 +23,6 @@ export class Conversation extends Document {
 
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);
 
-ConversationSchema.index({ participant_ids: 1 }, { unique: true });
+ConversationSchema.index({ conversation_key: 1 }, { unique: true });
+ConversationSchema.index({ participant_ids: 1 });
 ConversationSchema.index({ last_message_at: -1 });

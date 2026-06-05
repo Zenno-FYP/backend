@@ -105,6 +105,48 @@ Documented under the **Admin** tag in Swagger when `ENABLE_SWAGGER` is enabled. 
 - **Validation**: global `ValidationPipe` with whitelist/transform protections
 - **Docs**: Swagger available at `/api/docs` when enabled
 
+```mermaid
+flowchart TB
+  subgraph clients["Clients"]
+    Website["website\nReact"]
+    Mobile["mobile_app\nFlutter"]
+    Desktop["desktop-agent\nPython"]
+  end
+
+  subgraph api["NestJS API"]
+    Auth[FirebaseAuthGuard]
+    UserMod[user]
+    SyncMod[activity / sync]
+    DashMod[dashboard]
+    ChatMod["chat\nREST + WS /chat"]
+    NotifMod[notifications + cron]
+    AgentMod[agent]
+    AdminMod["admin\nisAdmin gate"]
+  end
+
+  Firebase[(Firebase Admin\nID token verify)]
+  MongoDB[(MongoDB)]
+
+  clients --> Auth
+  Auth --> Firebase
+  Auth --> UserMod
+  Auth --> SyncMod
+  Auth --> DashMod
+  Auth --> ChatMod
+  Auth --> NotifMod
+  Auth --> AgentMod
+  Auth --> AdminMod
+  UserMod --> MongoDB
+  SyncMod --> MongoDB
+  DashMod --> MongoDB
+  ChatMod --> MongoDB
+  NotifMod --> MongoDB
+  AgentMod --> MongoDB
+  AdminMod --> MongoDB
+  ChatMod -.->|Socket.IO| Website
+  ChatMod -.->|Socket.IO| Mobile
+```
+
 ## Project Structure
 
 - `src/main.ts` - bootstrap, CORS, pipes, Swagger, server start
