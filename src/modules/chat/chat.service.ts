@@ -25,6 +25,12 @@ function sortedParticipantIds(a: Types.ObjectId, b: Types.ObjectId): Types.Objec
   return sa < sb ? [a, b] : [b, a];
 }
 
+function conversationKey(a: Types.ObjectId, b: Types.ObjectId): string {
+  return sortedParticipantIds(a, b)
+    .map((id) => id.toString())
+    .join(':');
+}
+
 function toMessageDto(doc: ChatMessage): ChatMessageItemDto {
   const created = (doc as any).createdAt as Date | undefined;
   return {
@@ -73,12 +79,21 @@ export class ChatService {
       throw new NotFoundException('Recipient not found');
     }
     const pair = sortedParticipantIds(me._id as Types.ObjectId, otherId);
-    let conv = await this.conversationModel.findOne({
-      participant_ids: { $all: pair, $size: 2 },
-    });
+    const key = conversationKey(me._id as Types.ObjectId, otherId);
+    let conv = await this.conversationModel.findOne({ conversation_key: key });
+    if (!conv) {
+      conv = await this.conversationModel.findOne({
+        participant_ids: { $all: pair, $size: 2 },
+      });
+      if (conv && !conv.conversation_key) {
+        conv.conversation_key = key;
+        await conv.save();
+      }
+    }
     if (!conv) {
       try {
         conv = await this.conversationModel.create({
+          conversation_key: key,
           participant_ids: pair,
           last_message_at: new Date(),
           last_message_text: '',
@@ -86,9 +101,7 @@ export class ChatService {
         });
       } catch (e: any) {
         if (e?.code === 11000) {
-          conv = await this.conversationModel.findOne({
-            participant_ids: { $all: pair, $size: 2 },
-          });
+          conv = await this.conversationModel.findOne({ conversation_key: key });
         }
         if (!conv) {
           throw e;
