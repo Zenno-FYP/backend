@@ -27,7 +27,7 @@ export class AgentPreferences extends Document {
   @Prop({ default: false })
   notification_sound: boolean;
 
-  /** Cosmetic tone shown on the website agent card. */
+  /** Nudge voice used by the desktop agent's NLP persona. */
   @Prop({ default: 'motivational', enum: ['friendly', 'motivational', 'professional', 'casual'] })
   agent_tone: string;
 
