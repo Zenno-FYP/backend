@@ -108,6 +108,15 @@ export class ChatService {
         }
       }
     }
+    if (conv.deleted_for_user_ids?.some((id) => id.equals(me._id as Types.ObjectId))) {
+      await this.conversationModel.updateOne(
+        { _id: conv._id },
+        { $pull: { deleted_for_user_ids: me._id as Types.ObjectId } },
+      );
+      conv.deleted_for_user_ids = conv.deleted_for_user_ids.filter(
+        (id) => !id.equals(me._id as Types.ObjectId),
+      );
+    }
     return conv!;
   }
 
@@ -121,7 +130,7 @@ export class ChatService {
     const me = await this.userByEmail(email);
     const myId = me._id as Types.ObjectId;
     const list = await this.conversationModel
-      .find({ participant_ids: myId })
+      .find({ participant_ids: myId, deleted_for_user_ids: { $ne: myId } })
       .sort({ last_message_at: -1 })
       .lean()
       .exec();
@@ -172,6 +181,9 @@ export class ChatService {
       throw new NotFoundException('Conversation not found');
     }
     this.assertParticipant(conv, me._id as Types.ObjectId);
+    if (conv.deleted_for_user_ids?.some((id) => id.equals(me._id as Types.ObjectId))) {
+      return [];
+    }
 
     const q: Record<string, unknown> = { conversation_id: new Types.ObjectId(conversationId) };
     if (before && Types.ObjectId.isValid(before)) {
@@ -203,6 +215,22 @@ export class ChatService {
     );
   }
 
+  async deleteConversationForUser(email: string, conversationId: string): Promise<void> {
+    if (!Types.ObjectId.isValid(conversationId)) {
+      throw new BadRequestException('Invalid conversation id');
+    }
+    const me = await this.userByEmail(email);
+    const conv = await this.conversationModel.findById(conversationId);
+    if (!conv) {
+      throw new NotFoundException('Conversation not found');
+    }
+    this.assertParticipant(conv, me._id as Types.ObjectId);
+    await this.conversationModel.updateOne(
+      { _id: conv._id },
+      { $addToSet: { deleted_for_user_ids: me._id as Types.ObjectId } },
+    );
+  }
+
   /**
    * Persist message and update conversation; used from HTTP (future) and WebSocket gateway.
    */
@@ -226,6 +254,10 @@ export class ChatService {
       body: trimmed,
       read_at: null,
     });
+    await this.conversationModel.updateOne(
+      { _id: conv._id },
+      { $pull: { deleted_for_user_ids: { $in: conv.participant_ids } } },
+    );
     conv.last_message_at = (msg as any).createdAt ?? new Date();
     conv.last_message_text = trimmed.length > 160 ? `${trimmed.slice(0, 157)}…` : trimmed;
     conv.last_message_sender_id = me._id as Types.ObjectId;

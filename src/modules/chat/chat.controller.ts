@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
 import { ChatService } from './chat.service';
@@ -56,6 +56,25 @@ export class ChatController {
     @Body() dto: OpenConversationDto,
   ): Promise<OpenConversationResponseDto> {
     return this.chatService.openConversation(req.user.email, dto.userId);
+  }
+
+  @Delete('conversations/:conversationId')
+  @ApiOperation({
+    summary: 'Delete a conversation from the caller inbox',
+    description:
+      'Soft-deletes the conversation for the current user only. The other participant keeps their copy.',
+  })
+  @ApiResponse({ status: 200, description: 'Conversation hidden for caller' })
+  @ApiResponse({ status: 400, description: 'Invalid conversation id' })
+  @ApiResponse({ status: 401, description: 'Missing or invalid Firebase token' })
+  @ApiResponse({ status: 403, description: 'Not a participant' })
+  @ApiResponse({ status: 404, description: 'Conversation not found' })
+  async deleteConversation(
+    @Request() req: any,
+    @Param('conversationId') conversationId: string,
+  ): Promise<{ ok: true }> {
+    await this.chatService.deleteConversationForUser(req.user.email, conversationId);
+    return { ok: true };
   }
 
   @Get('conversations/:conversationId/messages')
