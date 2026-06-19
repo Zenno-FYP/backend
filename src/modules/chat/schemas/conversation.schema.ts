@@ -19,6 +19,9 @@ export class Conversation extends Document {
 
   @Prop({ type: Types.ObjectId, ref: 'User', default: null })
   last_message_sender_id: Types.ObjectId | null;
+
+  @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
+  deleted_for_user_ids: Types.ObjectId[];
 }
 
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);
@@ -26,3 +29,4 @@ export const ConversationSchema = SchemaFactory.createForClass(Conversation);
 ConversationSchema.index({ conversation_key: 1 }, { unique: true });
 ConversationSchema.index({ participant_ids: 1 });
 ConversationSchema.index({ last_message_at: -1 });
+ConversationSchema.index({ deleted_for_user_ids: 1 });
